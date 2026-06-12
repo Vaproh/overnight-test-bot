@@ -128,18 +128,29 @@ def curl_backend(
         raw = proc.stdout
         stderr_out = proc.stderr.strip()
 
-        # Parse -i output: headers end with \r\n\r\n, then body
+        # Parse -i output: headers end with \r\n\r\n or \n\n, then body
         status_code = None
         resp_headers = {}
         body = ""
 
-        if "\r\n\r\n" in raw:
-            header_part, body = raw.split("\r\n\r\n", 1)
-        elif "\n\n" in raw:
-            header_part, body = raw.split("\n\n", 1)
+        # Try multiple separators
+        for sep in ["\r\n\r\n", "\n\n"]:
+            if sep in raw:
+                header_part, body = raw.split(sep, 1)
+                break
         else:
-            header_part = raw
-            body = ""
+            # No separator found - try to find JSON start
+            json_start = raw.find("\n\n")
+            if json_start == -1:
+                json_start = raw.find("\r\n\r\n")
+            if json_start != -1:
+                # Skip past the separator
+                sep_len = 2 if raw[json_start:json_start+2] == "\n\n" else 4
+                header_part = raw[:json_start]
+                body = raw[json_start + sep_len:]
+            else:
+                header_part = raw
+                body = ""
 
         for line in header_part.split("\n"):
             line = line.strip()

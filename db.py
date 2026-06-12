@@ -14,6 +14,7 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self._init_tables()
+        self._migrate()
 
     def _init_tables(self):
         cursor = self.conn.cursor()
@@ -111,6 +112,25 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_events_account_id ON events(account_id);
             CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
         """)
+        self.conn.commit()
+
+    def _migrate(self):
+        cursor = self.conn.cursor()
+        # Add backend column if missing
+        try:
+            cursor.execute("SELECT backend FROM checks LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE checks ADD COLUMN backend TEXT DEFAULT 'unknown'")
+        # Add curl_stderr column if missing
+        try:
+            cursor.execute("SELECT curl_stderr FROM checks LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE checks ADD COLUMN curl_stderr TEXT")
+        # Add curl_exit_code column if missing
+        try:
+            cursor.execute("SELECT curl_exit_code FROM checks LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE checks ADD COLUMN curl_exit_code INTEGER")
         self.conn.commit()
 
     def get_or_create_account(self, username: str) -> int:
