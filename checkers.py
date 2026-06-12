@@ -1,166 +1,173 @@
-import requests
-import time
-import random
+"""Instagram account visibility checkers using pluggable transport layer."""
+
 import hashlib
 import json
-import os
-import traceback
 import logging
+import os
+import re
+import subprocess
+import time
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple, Callable
+from typing import Any, Dict, List, Optional, Tuple
+
+from transports import fetch_profile, TransportResult
 
 logger = logging.getLogger("instagram_monitor")
 
+ANDROID_USER_AGENTS = [
+    "Instagram 320.0.0.0 Android (33; 33; SM-S908B; SM-S908B; 33; 33; exynos2200; en_US; 701237498)",
+    "Instagram 320.0.0.0 Android (30; 30; SM-G991B; SM-G991B; 30; 30; exynos2100; en_US; 701237498)",
+    "Instagram 319.0.0.0 Android (33; 33; Pixel 7; Pixel 7; 33; 33; google; en_US; 701237498)",
+    "Instagram 318.0.0.0 Android (31; 31; Pixel 6; Pixel 6; 31; 31; google; en_US; 701237498)",
+    "Instagram 320.0.0.0 Android (14; 14; SM-A546B; SM-A546B; 14; 14; samsungexynos2200; en_US; 701237498)",
+    "Instagram 319.0.0.0 Android (14; 14; SM-S926B; SM-S926B; 14; 14; samsungexynos2400; en_US; 701237498)",
+]
+
 
 def get_user_agent(config: Dict[str, Any]) -> str:
-    if config.get("fixed_user_agent"):
-        return config["fixed_user_agent"]
-    agents = config.get("user_agent_rotation", [])
-    if not agents:
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    return random.choice(agents)
+    ua_cfg = config.get("user_agents", {})
+    mode = ua_cfg.get("mode", "android_only")
 
-
-def build_api_url(username: str) -> str:
-    return f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
+    if mode == "fixed":
+        return ua_cfg.get("fixed", ANDROID_USER_AGENTS[0])
+    elif mode == "custom" and ua_cfg.get("list"):
+        return ua_cfg["list"][len(ANDROID_USER_AGENTS) % len(ua_cfg["list"])]
+    else:
+        return ANDROID_USER_AGENTS[0]
 
 
 def build_headers(user_agent: str) -> Dict[str, str]:
     return {
         "User-Agent": user_agent,
         "x-ig-app-id": "936619743392459",
+        "Accept": "*/*",
+        "Accept-Language": "en-US",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
     }
 
 
-def classify_api_response(data: Any, status_code: int) -> str:
-    try:
-        if status_code == 404:
-            return "MISSING"
-        if status_code == 401 or status_code == 403:
-            return "UNKNOWN"
-        if status_code == 429:
-            return "UNKNOWN"
-        if status_code >= 500:
-            return "ERROR"
+def build_api_url(username: str) -> str:
+    return f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
 
-        if not isinstance(data, dict):
-            return "UNKNOWN"
 
-        user_data = data.get("data", {}).get("user")
-        if user_data is None:
-            if "message" in data:
-                msg = data["message"].lower()
-                if "not found" in msg or "doesn't exist" in msg:
-                    return "MISSING"
-            return "MISSING"
+def build_proxy_url(config: Dict[str, Any]) -> Optional[str]:
+    proxy_cfg = config.get("proxy", {})
+    if not proxy_cfg.get("enabled"):
+        return None
+    server = proxy_cfg.get("server", "")
+    username = proxy_cfg.get("username", "")
+    password = proxy_cfg.get("password", "")
+    if not server:
+        return None
+    if username and password:
+        if "://" in server:
+            scheme, rest = server.split("://", 1)
+            return f"{scheme}://{username}:{password}@{rest}"
+        return f"http://{username}:{password}@{server}"
+    return server
 
-        if isinstance(user_data, dict):
-            if user_data.get("is_private") is not None or user_data.get("full_name") is not None:
-                return "ACTIVE"
-            if user_data.get("error") or user_data.get("status") == "fail":
-                return "UNKNOWN"
 
+def classify_response(data: Dict[str, Any], status_code: Optional[int]) -> str:
+    if status_code == 404:
+        return "MISSING"
+    if status_code == 401 or status_code == 403:
         return "ACTIVE"
-    except Exception:
+    if status_code == 429:
         return "UNKNOWN"
+    if status_code and status_code >= 500:
+        return "UNKNOWN"
+    if status_code and status_code < 200:
+        return "ERROR"
+
+    if "status" in data:
+        s = str(data.get("status", "")).lower()
+        if s in ("ok", "success"):
+            pass
+        elif s in ("fail", "error"):
+            return "UNKNOWN"
+
+    user_data = data.get("data", {}).get("user")
+    if user_data is None:
+        return "MISSING"
+    if isinstance(user_data, dict):
+        if user_data.get("is_private") is not None or user_data.get("username") is not None:
+            return "ACTIVE"
+        return "MISSING"
+    return "MISSING"
 
 
-def classify_playwright_response(page_content: str, url: str) -> str:
+def classify_playwright_response(page_content: str, status_code: Optional[int]) -> str:
+    if status_code == 404:
+        return "MISSING"
     content_lower = page_content.lower()
 
-    # Clearly missing
-    if "sorry, this page isn't available" in content_lower:
+    if "login" in content_lower and ("sign" in content_lower or "log in" in content_lower):
+        return "ACTIVE"
+    if '"edge_followed_by"' in page_content or '"edge_follow"' in page_content:
+        return "ACTIVE"
+    if '"is_private":' in page_content:
+        return "ACTIVE"
+    if '"full_name"' in page_content and '"username"' in page_content:
+        return "ACTIVE"
+    if "Sorry, this page isn't available." in page_content:
         return "MISSING"
-    if "the link you followed may be broken" in content_lower:
+    if "The link you followed may be broken" in page_content:
         return "MISSING"
-    if "page not found" in content_lower and "instagram" in content_lower:
-        return "MISSING"
-
-    # Clearly active - look for Instagram-specific profile data markers
-    if '"edge_followed_by"' in content_lower or '"followed_by"' in content_lower:
+    if re.search(r'"follower_count"\s*:\s*\d+', page_content):
         return "ACTIVE"
-    if '"edge_follow"' in content_lower or '"edge_followed_by"' in content_lower:
+    if re.search(r'"media_count"\s*:\s*\d+', page_content):
         return "ACTIVE"
-    if '"profile_pic_url_hd"' in content_lower or '"profile_pic_url"' in content_lower:
-        return "ACTIVE"
-    if '"is_private":true' in content_lower or '"is_private":false' in content_lower:
-        return "ACTIVE"
-    if 'profilePage_' in content_lower and '"username"' in content_lower:
-        return "ACTIVE"
-
-    # Challenge or verification wall
-    if "challenge" in content_lower and "instagram" in content_lower:
-        return "UNKNOWN"
-    if "/accounts/login" in content_lower and "checkpoint" in content_lower:
-        return "UNKNOWN"
-
-    # Rate limit
-    if "rate limit" in content_lower or "too many requests" in content_lower:
-        return "UNKNOWN"
-
-    # Too small to be a real page
-    if len(page_content) < 500:
-        return "UNKNOWN"
-
-    # Login page without profile data - ambiguous
-    if "login" in content_lower and "sign up" in content_lower:
-        return "UNKNOWN"
 
     return "UNKNOWN"
 
 
-def save_raw_response(raw_dir: str, username: str, response_data: Any, mode: str) -> Tuple[str, str]:
-    os.makedirs(raw_dir, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"{username}_{mode}_{timestamp}.json"
-    filepath = os.path.join(raw_dir, filename)
-
+def get_response_hash(raw_response: Any) -> str:
     try:
-        content = json.dumps(response_data, ensure_ascii=False, indent=2) if not isinstance(response_data, str) else response_data
+        canonical = json.dumps(raw_response, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def save_raw_response(raw_dir: str, username: str, raw_response: Any, backend: str) -> Tuple[str, str]:
+    try:
+        os.makedirs(raw_dir, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"{username}_{backend}_{ts}.json"
+        filepath = os.path.join(raw_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-        return filepath, hashlib.sha256(content.encode()).hexdigest()
+            json.dump(raw_response, f, ensure_ascii=False, indent=2, default=str)
+        return filepath, filename
     except Exception as e:
         logger.error(f"Failed to save raw response: {e}")
         return "", ""
 
 
-def build_proxy_url(config: Dict[str, Any]) -> Optional[str]:
-    proxy_enabled = config.get("proxy", {}).get("enabled", False)
-    if not proxy_enabled:
-        return None
-    proxy_cfg = config.get("proxy", {})
-    proxy_url = proxy_cfg.get("server", "")
-    if proxy_cfg.get("username") and proxy_cfg.get("password"):
-        host_port = proxy_url
-        for prefix in ("https://", "http://", "socks5://", "socks4://"):
-            if host_port.startswith(prefix):
-                host_port = host_port[len(prefix):]
-                break
-        proto = "socks5" if "socks" in proxy_url else "http"
-        proxy_url = f"{proto}://{proxy_cfg['username']}:{proxy_cfg['password']}@{host_port}"
-    return proxy_url
-
-
-def check_api_direct(username: str, config: Dict[str, Any], backend_name: Optional[str] = None) -> Dict[str, Any]:
-    from backends import make_request
+def check_profile(
+    username: str,
+    config: Dict[str, Any],
+    transport_name: Optional[str] = None,
+    should_stop=None,
+) -> Dict[str, Any]:
+    if transport_name is None:
+        transport_name = config.get("transport", {}).get("primary", "curl") or "curl"
+    assert transport_name is not None
 
     user_agent = get_user_agent(config)
     headers = build_headers(user_agent)
     url = build_api_url(username)
     timeout = config.get("request_timeout", 30)
-    proxy_enabled = config.get("proxy", {}).get("enabled", False)
     proxy_url = build_proxy_url(config)
+    proxy_enabled = proxy_url is not None
 
-    if backend_name is None:
-        backend_name = config.get("api", {}).get("backend", "requests")
-
-    mode_suffix = "api_proxy" if proxy_enabled else "api_direct"
+    retry_cfg = config.get("retry", {})
+    max_retries = retry_cfg.get("attempts", 3) if retry_cfg.get("enabled") else 1
+    backoff_list = retry_cfg.get("backoff_seconds", [5, 15, 45])
 
     result = {
         "username": username,
-        "mode": mode_suffix,
-        "backend": backend_name,
+        "transport": transport_name,
         "proxy_enabled": proxy_enabled,
         "user_agent": user_agent,
         "start_time": datetime.now(timezone.utc).isoformat(),
@@ -177,58 +184,117 @@ def check_api_direct(username: str, config: Dict[str, Any], backend_name: Option
         "response_hash": "",
         "curl_stderr": None,
         "curl_exit_code": None,
+        "command": None,
+        "verified": None,
+        "verification_transport": None,
     }
 
-    try:
-        backend_result = make_request(backend_name or "requests", url, headers, timeout, proxy_url)
+    last_error = None
+    for attempt in range(max_retries):
+        if should_stop and should_stop():
+            result["error_message"] = "Shutdown requested"
+            result["classification"] = "ERROR"
+            return result
 
-        result["latency_ms"] = backend_result.latency_ms
-        result["status_code"] = backend_result.status_code
-        result["headers"] = backend_result.headers
-        result["response_size"] = len(backend_result.body)
-        result["success"] = backend_result.success
-        result["curl_stderr"] = backend_result.stderr
-        result["curl_exit_code"] = backend_result.exit_code
+        try:
+            tr = fetch_profile(transport_name, url, headers, timeout, proxy_url)
 
-        # Parse response body
-        body = backend_result.body
-        if not body:
-            result["raw_response"] = {"raw_text": ""}
-            result["classification"] = classify_api_response({}, backend_result.status_code or 0)
-        else:
+            result["latency_ms"] = tr.latency_ms
+            result["status_code"] = tr.status_code
+            result["headers"] = tr.headers
+            result["response_size"] = tr.response_size
+            result["response_hash"] = tr.response_hash
+            result["success"] = tr.success
+            result["curl_stderr"] = tr.stderr
+            result["curl_exit_code"] = tr.exit_code
+            result["command"] = tr.command
+
+            if tr.error:
+                result["error_message"] = tr.error
+                result["exception_type"] = "TransportError"
+                last_error = tr.error
+                if attempt < max_retries - 1:
+                    backoff = backoff_list[min(attempt, len(backoff_list) - 1)]
+                    logger.warning(f"{transport_name} attempt {attempt + 1} failed for {username}: {tr.error}, retry in {backoff}s")
+                    time.sleep(backoff)
+                    continue
+                result["classification"] = "ERROR"
+                return result
+
             try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                data = {"raw_text": body[:5000]}
+                raw_response = json.loads(tr.body) if tr.body else {}
+            except json.JSONDecodeError as e:
+                result["error_message"] = f"JSON decode error: {e}"
+                result["exception_type"] = "JSONDecodeError"
+                result["classification"] = "UNKNOWN"
+                return result
 
-            result["raw_response"] = data
-            result["response_hash"] = hashlib.sha256(body.encode()).hexdigest()
-            result["classification"] = classify_api_response(data, backend_result.status_code or 0)
+            result["raw_response"] = raw_response
+            result["classification"] = classify_response(raw_response, tr.status_code)
+            return result
 
-        if backend_result.error:
-            result["error_message"] = backend_result.error
-            result["exception_type"] = f"BackendError({backend_name})"
+        except Exception as e:
+            last_error = str(e)
+            result["exception_type"] = type(e).__name__
+            result["error_message"] = str(e)
+            import traceback
+            result["traceback"] = traceback.format_exc()
+            logger.error(f"Exception checking {username} with {transport_name}: {e}")
+            if attempt < max_retries - 1:
+                backoff = backoff_list[min(attempt, len(backoff_list) - 1)]
+                logger.warning(f"Attempt {attempt + 1} failed for {username}, retry in {backoff}s")
+                time.sleep(backoff)
 
-    except Exception as e:
-        result["error_message"] = str(e)[:500]
-        result["exception_type"] = type(e).__name__
-        result["classification"] = "ERROR"
-        result["traceback"] = traceback.format_exc()
-
+    if last_error:
+        result["error_message"] = last_error
+    result["classification"] = "ERROR"
     return result
 
 
-def check_playwright_direct(username: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    user_agent = get_user_agent(config)
-    timeout = config.get("request_timeout", 30) * 1000
-    proxy_enabled = config.get("proxy", {}).get("enabled", False)
+def check_profile_verify(
+    username: str,
+    config: Dict[str, Any],
+    primary_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    verify_cfg = config.get("transport", {}).get("verify_with", [])
+    if not verify_cfg:
+        return primary_result
 
-    start_time = time.time()
+    primary_class = primary_result.get("classification", "ERROR")
+    if primary_class not in ("ACTIVE", "MISSING"):
+        return primary_result
+
+    for v_transport in verify_cfg:
+        if v_transport == primary_result.get("transport"):
+            continue
+
+        v_result = check_profile(username, config, transport_name=v_transport)
+        v_class = v_result.get("classification", "ERROR")
+
+        if v_class == primary_class:
+            primary_result["verified"] = True
+            primary_result["verification_transport"] = v_transport
+            logger.info(f"Verification: {username} {primary_class} confirmed by {v_transport}")
+            return primary_result
+        elif v_class in ("ACTIVE", "MISSING") and v_class != primary_class:
+            primary_result["verified"] = False
+            primary_result["verification_transport"] = v_transport
+            logger.warning(f"Verification MISMATCH: {username} primary={primary_class} verify={v_class} ({v_transport})")
+            return primary_result
+
+    return primary_result
+
+
+def check_playwright(
+    username: str,
+    config: Dict[str, Any],
+    should_stop=None,
+) -> Dict[str, Any]:
     result = {
         "username": username,
-        "mode": "playwright_direct" if not proxy_enabled else "playwright_proxy",
-        "proxy_enabled": proxy_enabled,
-        "user_agent": user_agent,
+        "transport": "playwright",
+        "proxy_enabled": False,
+        "user_agent": "",
         "start_time": datetime.now(timezone.utc).isoformat(),
         "success": False,
         "status_code": None,
@@ -241,188 +307,71 @@ def check_playwright_direct(username: str, config: Dict[str, Any]) -> Dict[str, 
         "traceback": None,
         "response_size": 0,
         "response_hash": "",
+        "curl_stderr": None,
+        "curl_exit_code": None,
         "screenshot": None,
+        "verified": None,
+        "verification_transport": None,
     }
-
-    browser = None
-    context = None
-    page = None
 
     try:
         from playwright.sync_api import sync_playwright
+    except ImportError:
+        result["error_message"] = "playwright not installed"
+        result["classification"] = "ERROR"
+        return result
 
+    url = f"https://www.instagram.com/{username}/"
+    start = time.time()
+
+    try:
         with sync_playwright() as p:
-            launch_args = {
-                "headless": True,
-                "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-            }
-
-            proxy_cfg = None
-            if proxy_enabled:
-                proxy_settings = config.get("proxy", {})
-                proxy_cfg = {"server": proxy_settings.get("server", "")}
-                if proxy_settings.get("username") and proxy_settings.get("password"):
-                    proxy_cfg["username"] = proxy_settings["username"]
-                    proxy_cfg["password"] = proxy_settings["password"]
-                launch_args["proxy"] = proxy_cfg
-
-            browser = p.chromium.launch(**launch_args)
+            browser = p.chromium.launch(headless=True)
             context = browser.new_context(
-                user_agent=user_agent,
+                user_agent=get_user_agent(config),
                 viewport={"width": 1920, "height": 1080},
             )
             page = context.new_page()
 
-            url = f"https://www.instagram.com/{username}/"
-            response = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            response = page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(3000)
+
+            elapsed = (time.time() - start) * 1000
+            result["latency_ms"] = elapsed
+            result["success"] = True
 
             if response:
                 result["status_code"] = response.status
                 result["headers"] = dict(response.headers)
 
-            page.wait_for_timeout(3000)
-
             page_content = page.content()
-            result["raw_response"] = page_content
-            result["response_size"] = len(page_content.encode("utf-8"))
-            result["response_hash"] = hashlib.sha256(page_content.encode()).hexdigest()
-            result["success"] = True
-            result["classification"] = classify_playwright_response(page_content, url)
+            result["response_size"] = len(page_content)
 
-            if config.get("save_screenshots", False):
-                should_screenshot = False
-                if result["classification"] in ("UNKNOWN", "ERROR") and config.get("screenshot_on_unknown", True):
-                    should_screenshot = True
-                if config.get("screenshot_on_error", True) and result["classification"] == "ERROR":
-                    should_screenshot = True
+            result["classification"] = classify_playwright_response(page_content, result.get("status_code"))
 
-                if should_screenshot:
-                    screenshots_dir = config.get("screenshots_dir", "./output/screenshots")
-                    os.makedirs(screenshots_dir, exist_ok=True)
-                    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-                    screenshot_path = os.path.join(screenshots_dir, f"{username}_{timestamp}.png")
-                    page.screenshot(path=screenshot_path, full_page=True)
-                    result["screenshot"] = screenshot_path
+            raw_dir = config.get("raw_responses_dir", "./output/raw_responses")
+            os.makedirs(raw_dir, exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            screenshot_path = os.path.join(raw_dir, f"{username}_playwright_{ts}.png")
+            page.screenshot(path=screenshot_path)
+            result["screenshot"] = screenshot_path
+
+            result["raw_response"] = {
+                "url": url,
+                "title": page.title(),
+                "content_length": len(page_content),
+                "content_preview": page_content[:2000],
+            }
+
+            browser.close()
 
     except Exception as e:
-        end_time = time.time()
-        result["latency_ms"] = (end_time - start_time) * 1000
-        result["error_message"] = str(e)[:500]
+        elapsed = (time.time() - start) * 1000
+        result["latency_ms"] = elapsed
+        result["error_message"] = str(e)
         result["exception_type"] = type(e).__name__
-        result["classification"] = "ERROR"
+        import traceback
         result["traceback"] = traceback.format_exc()
-        return result
+        logger.error(f"Playwright error checking {username}: {e}")
 
-    finally:
-        try:
-            if page:
-                page.close()
-        except Exception:
-            pass
-        try:
-            if context:
-                context.close()
-        except Exception:
-            pass
-        try:
-            if browser:
-                browser.close()
-        except Exception:
-            pass
-
-    end_time = time.time()
-    result["latency_ms"] = (end_time - start_time) * 1000
     return result
-
-
-def check_account(username: str, config: Dict[str, Any], should_stop: Optional[Callable[[], bool]] = None, backend_name: Optional[str] = None) -> Dict[str, Any]:
-    mode = config.get("mode", "api_direct")
-    max_retries = config.get("retry_count", 3)
-    backoff = config.get("retry_backoff", 2.0)
-
-    for attempt in range(max_retries):
-        if should_stop and should_stop():
-            return {
-                "username": username,
-                "mode": mode,
-                "classification": "ERROR",
-                "error_message": "Shutdown requested during retry",
-                "success": False,
-                "retry_count": attempt,
-                "latency_ms": 0,
-                "start_time": datetime.now(timezone.utc).isoformat(),
-            }
-        try:
-            if mode in ("api_direct", "api_proxy"):
-                result = check_api_direct(username, config, backend_name=backend_name)
-            elif mode in ("playwright_direct", "playwright_proxy"):
-                result = check_playwright_direct(username, config)
-            else:
-                return {
-                    "username": username,
-                    "mode": mode,
-                    "classification": "ERROR",
-                    "error_message": f"Unknown mode: {mode}",
-                    "success": False,
-                }
-
-            result["retry_count"] = attempt
-
-            if result["classification"] == "ERROR" and attempt < max_retries - 1:
-                wait_time = backoff * (2 ** attempt) + random.uniform(0, 1)
-                logger.warning(f"Retry {attempt + 1}/{max_retries} for {username} after {wait_time:.1f}s")
-                time.sleep(wait_time)
-                continue
-
-            return result
-
-        except Exception as e:
-            if attempt < max_retries - 1:
-                wait_time = backoff * (2 ** attempt) + random.uniform(0, 1)
-                logger.warning(f"Retry {attempt + 1}/{max_retries} for {username} after error: {e}")
-                time.sleep(wait_time)
-                continue
-
-            return {
-                "username": username,
-                "mode": mode,
-                "classification": "ERROR",
-                "error_message": str(e)[:500],
-                "exception_type": type(e).__name__,
-                "traceback": traceback.format_exc(),
-                "success": False,
-                "retry_count": attempt,
-                "latency_ms": 0,
-                "start_time": datetime.now(timezone.utc).isoformat(),
-            }
-
-    return {
-        "username": username,
-        "mode": mode,
-        "classification": "ERROR",
-        "error_message": "Max retries exceeded",
-        "success": False,
-        "retry_count": max_retries,
-        "latency_ms": 0,
-        "start_time": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def check_account_test_backends(username: str, config: Dict[str, Any]) -> list:
-    test_backends = config.get("api", {}).get("test_backends", ["curl", "requests", "httpx"])
-    results = []
-    for backend_name in test_backends:
-        try:
-            result = check_account(username, config, backend_name=backend_name)
-            result["backend"] = backend_name
-            results.append(result)
-        except Exception as e:
-            results.append({
-                "username": username,
-                "backend": backend_name,
-                "classification": "ERROR",
-                "error_message": str(e)[:500],
-                "success": False,
-                "latency_ms": 0,
-            })
-    return results

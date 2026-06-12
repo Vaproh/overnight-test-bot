@@ -1,16 +1,22 @@
 # Dryrun config - fast timings, short test
-mode: api_direct
+mode: api
+
+transport:
+  primary: curl
+  verify_with: []
+  compare_all: false
 
 proxy:
   enabled: false
 
-api:
-  backend: curl
-  test_backends: [curl, requests]
+user_agents:
+  mode: android_only
+
+retry:
+  enabled: false
+  attempts: 1
 
 request_timeout: 10
-retry_count: 1
-retry_backoff: 1.0
 
 random_sleep_min: 2
 random_sleep_max: 5
@@ -18,31 +24,23 @@ per_account_delay_min: 1
 per_account_delay_max: 2
 jitter: 0.1
 
-user_agent_rotation:
-  - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-fixed_user_agent: ""
-
 logging_level: DEBUG
 save_raw_responses: true
 save_response_headers: true
-save_screenshots: false
-screenshot_on_unknown: false
-screenshot_on_error: false
-screenshot_on_transition: false
+
+screenshots:
+  enabled: false
 
 output_dir: "./output_dryrun"
 database_path: "./output_dryrun/monitor.db"
 raw_responses_dir: "./output_dryrun/raw_responses"
-screenshots_dir: "./output_dryrun/screenshots"
 logs_dir: "./output_dryrun/logs"
 
 checkpoint_interval: 10
 heartbeat_interval: 30
 
 max_runtime_hours: 0
-auto_restart: false
 keep_running_after_failures: true
-concurrency: 1
 
 accounts:
   - username: "instagram"

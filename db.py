@@ -40,6 +40,7 @@ class Database:
                 run_id TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 mode TEXT NOT NULL,
+                transport TEXT DEFAULT 'unknown',
                 backend TEXT DEFAULT 'unknown',
                 proxy_enabled INTEGER NOT NULL DEFAULT 0,
                 user_agent TEXT,
@@ -59,6 +60,8 @@ class Database:
                 screenshot_path TEXT,
                 curl_stderr TEXT,
                 curl_exit_code INTEGER,
+                verified INTEGER,
+                verification_transport TEXT,
                 FOREIGN KEY (account_id) REFERENCES accounts(id)
             );
 
@@ -90,11 +93,9 @@ class Database:
                 latency_avg REAL DEFAULT 0,
                 latency_min REAL DEFAULT 0,
                 latency_max REAL DEFAULT 0,
-                rate_limit_count INTEGER DEFAULT 0,
-                timeout_count INTEGER DEFAULT 0,
-                proxy_error_count INTEGER DEFAULT 0,
-                browser_error_count INTEGER DEFAULT 0,
-                transition_count INTEGER DEFAULT 0
+                transition_count INTEGER DEFAULT 0,
+                verify_mismatch_count INTEGER DEFAULT 0,
+                transports_blob TEXT
             );
 
             CREATE TABLE IF NOT EXISTS checkpoint (
@@ -116,21 +117,26 @@ class Database:
 
     def _migrate(self):
         cursor = self.conn.cursor()
-        # Add backend column if missing
-        try:
-            cursor.execute("SELECT backend FROM checks LIMIT 1")
-        except sqlite3.OperationalError:
-            cursor.execute("ALTER TABLE checks ADD COLUMN backend TEXT DEFAULT 'unknown'")
-        # Add curl_stderr column if missing
-        try:
-            cursor.execute("SELECT curl_stderr FROM checks LIMIT 1")
-        except sqlite3.OperationalError:
-            cursor.execute("ALTER TABLE checks ADD COLUMN curl_stderr TEXT")
-        # Add curl_exit_code column if missing
-        try:
-            cursor.execute("SELECT curl_exit_code FROM checks LIMIT 1")
-        except sqlite3.OperationalError:
-            cursor.execute("ALTER TABLE checks ADD COLUMN curl_exit_code INTEGER")
+        for col, typedef in [
+            ("backend", "TEXT DEFAULT 'unknown'"),
+            ("curl_stderr", "TEXT"),
+            ("curl_exit_code", "INTEGER"),
+            ("transport", "TEXT DEFAULT 'unknown'"),
+            ("verified", "INTEGER"),
+            ("verification_transport", "TEXT"),
+        ]:
+            try:
+                cursor.execute(f"SELECT {col} FROM checks LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(f"ALTER TABLE checks ADD COLUMN {col} {typedef}")
+        for col, typedef in [
+            ("verify_mismatch_count", "INTEGER DEFAULT 0"),
+            ("transports_blob", "TEXT"),
+        ]:
+            try:
+                cursor.execute(f"SELECT {col} FROM metrics LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(f"ALTER TABLE metrics ADD COLUMN {col} {typedef}")
         self.conn.commit()
 
     def get_or_create_account(self, username: str) -> int:
@@ -191,17 +197,17 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT INTO checks (
-                account_id, run_id, timestamp, mode, backend, proxy_enabled, user_agent,
+                account_id, run_id, timestamp, mode, transport, backend, proxy_enabled, user_agent,
                 status_code, latency_ms, success, classification, raw_response_path,
                 raw_response_blob, headers_blob, error_message, exception_type,
                 traceback, retry_count, response_size, response_hash, screenshot_path,
-                curl_stderr, curl_exit_code
+                curl_stderr, curl_exit_code, verified, verification_transport
             ) VALUES (
-                :account_id, :run_id, :timestamp, :mode, :backend, :proxy_enabled, :user_agent,
+                :account_id, :run_id, :timestamp, :mode, :transport, :backend, :proxy_enabled, :user_agent,
                 :status_code, :latency_ms, :success, :classification, :raw_response_path,
                 :raw_response_blob, :headers_blob, :error_message, :exception_type,
                 :traceback, :retry_count, :response_size, :response_hash, :screenshot_path,
-                :curl_stderr, :curl_exit_code
+                :curl_stderr, :curl_exit_code, :verified, :verification_transport
             )
         """, check_data)
         self.conn.commit()
@@ -223,14 +229,12 @@ class Database:
                 timestamp, run_id, mode, requests_total, requests_success, requests_failed,
                 active_count, missing_count, unknown_count, error_count,
                 latency_avg, latency_min, latency_max,
-                rate_limit_count, timeout_count, proxy_error_count, browser_error_count,
-                transition_count
+                transition_count, verify_mismatch_count, transports_blob
             ) VALUES (
                 :timestamp, :run_id, :mode, :requests_total, :requests_success, :requests_failed,
                 :active_count, :missing_count, :unknown_count, :error_count,
                 :latency_avg, :latency_min, :latency_max,
-                :rate_limit_count, :timeout_count, :proxy_error_count, :browser_error_count,
-                :transition_count
+                :transition_count, :verify_mismatch_count, :transports_blob
             )
         """, metrics_data)
         self.conn.commit()
