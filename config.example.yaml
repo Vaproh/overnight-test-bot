@@ -1,5 +1,5 @@
 # Instagram Account Visibility Monitor - Configuration
-# Run with: python main.py --config config.yaml
+# Copy this to config.yaml and edit: cp config.example.yaml config.yaml
 
 # Mode: api_direct | api_proxy | playwright_direct | playwright_proxy
 mode: api_direct
@@ -7,7 +7,7 @@ mode: api_direct
 # Proxy settings
 proxy:
   enabled: false
-  server: ""
+  server: ""        # e.g. "http://gate.smartproxy.com:7000"
   username: ""
   password: ""
 
