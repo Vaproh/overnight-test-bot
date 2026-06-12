@@ -28,6 +28,13 @@ user_agent_rotation:
   - "Instagram 320.0.0.0 Android"
   - "Instagram 319.0.0.0 Android"
   - "Instagram 318.0.0.0 Android"
+  - "Instagram 317.0.0.0 Android"
+  - "Instagram 316.0.0.0 Android"
+  - "Instagram 315.0.0.0 Android"
+  - "Instagram 314.0.0.0 Android"
+  - "Instagram 313.0.0.0 Android"
+  - "Instagram 275.0.0.27.98 Android"
+  - "Instagram 269.0.0.18.75 Android"
 fixed_user_agent: ""
 
 # Logging
