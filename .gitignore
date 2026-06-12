@@ -1,0 +1,7 @@
+config.yaml
+output/
+output_dryrun/
+*.db
+__pycache__/
+.venv/
+*.pyc

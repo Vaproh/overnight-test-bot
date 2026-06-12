@@ -1,0 +1,63 @@
+# Instagram Account Visibility Monitor - Configuration
+# Run with: python main.py --config config.yaml
+
+# Mode: api_direct | api_proxy | playwright_direct | playwright_proxy
+mode: api_direct
+
+# Proxy settings
+proxy:
+  enabled: false
+  server: ""
+  username: ""
+  password: ""
+
+# Request settings
+request_timeout: 30
+retry_count: 3
+retry_backoff: 2.0
+
+# Timing
+random_sleep_min: 30
+random_sleep_max: 90
+per_account_delay_min: 5
+per_account_delay_max: 15
+jitter: 0.2
+
+# User agent
+user_agent_rotation:
+  - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+fixed_user_agent: ""
+
+# Logging
+logging_level: INFO
+save_raw_responses: true
+save_response_headers: true
+save_screenshots: false
+screenshot_on_unknown: true
+screenshot_on_error: true
+screenshot_on_transition: true
+
+# Storage
+output_dir: "./output"
+database_path: "./output/monitor.db"
+raw_responses_dir: "./output/raw_responses"
+screenshots_dir: "./output/screenshots"
+logs_dir: "./output/logs"
+
+# Checkpoint
+checkpoint_interval: 60
+heartbeat_interval: 300
+
+# Runtime
+max_runtime_hours: 0
+auto_restart: true
+keep_running_after_failures: true
+concurrency: 1
+
+# Accounts to monitor
+accounts:
+  - username: "test_account_1"
+  - username: "test_account_2"
+  - username: "test_account_3"
