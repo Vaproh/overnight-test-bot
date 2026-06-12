@@ -22,18 +22,13 @@ def get_user_agent(config: Dict[str, Any]) -> str:
 
 
 def build_api_url(username: str) -> str:
-    return f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+    return f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
 
 
 def build_headers(user_agent: str) -> Dict[str, str]:
     return {
         "User-Agent": user_agent,
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "X-IG-App-ID": "936619743392459",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": f"https://www.instagram.com/",
+        "x-ig-app-id": "936619743392459",
     }
 
 
