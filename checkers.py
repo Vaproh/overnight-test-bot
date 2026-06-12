@@ -125,32 +125,42 @@ def save_raw_response(raw_dir: str, username: str, response_data: Any, mode: str
         return "", ""
 
 
-def check_api_direct(username: str, config: Dict[str, Any]) -> Dict[str, Any]:
+def build_proxy_url(config: Dict[str, Any]) -> Optional[str]:
+    proxy_enabled = config.get("proxy", {}).get("enabled", False)
+    if not proxy_enabled:
+        return None
+    proxy_cfg = config.get("proxy", {})
+    proxy_url = proxy_cfg.get("server", "")
+    if proxy_cfg.get("username") and proxy_cfg.get("password"):
+        host_port = proxy_url
+        for prefix in ("https://", "http://", "socks5://", "socks4://"):
+            if host_port.startswith(prefix):
+                host_port = host_port[len(prefix):]
+                break
+        proto = "socks5" if "socks" in proxy_url else "http"
+        proxy_url = f"{proto}://{proxy_cfg['username']}:{proxy_cfg['password']}@{host_port}"
+    return proxy_url
+
+
+def check_api_direct(username: str, config: Dict[str, Any], backend_name: Optional[str] = None) -> Dict[str, Any]:
+    from backends import make_request
+
     user_agent = get_user_agent(config)
     headers = build_headers(user_agent)
     url = build_api_url(username)
     timeout = config.get("request_timeout", 30)
     proxy_enabled = config.get("proxy", {}).get("enabled", False)
+    proxy_url = build_proxy_url(config)
 
-    proxies = None
-    if proxy_enabled:
-        proxy_cfg = config.get("proxy", {})
-        proxy_url = proxy_cfg.get("server", "")
-        if proxy_cfg.get("username") and proxy_cfg.get("password"):
-            # Strip protocol prefix to get host:port
-            host_port = proxy_url
-            for prefix in ("https://", "http://", "socks5://", "socks4://"):
-                if host_port.startswith(prefix):
-                    host_port = host_port[len(prefix):]
-                    break
-            proto = "socks5" if "socks" in proxy_url else "http"
-            proxy_url = f"{proto}://{proxy_cfg['username']}:{proxy_cfg['password']}@{host_port}"
-        proxies = {"http": proxy_url, "https": proxy_url}
+    if backend_name is None:
+        backend_name = config.get("api", {}).get("backend", "requests")
 
-    start_time = time.time()
+    mode_suffix = "api_proxy" if proxy_enabled else "api_direct"
+
     result = {
         "username": username,
-        "mode": "api_direct" if not proxy_enabled else "api_proxy",
+        "mode": mode_suffix,
+        "backend": backend_name,
         "proxy_enabled": proxy_enabled,
         "user_agent": user_agent,
         "start_time": datetime.now(timezone.utc).isoformat(),
@@ -165,46 +175,41 @@ def check_api_direct(username: str, config: Dict[str, Any]) -> Dict[str, Any]:
         "traceback": None,
         "response_size": 0,
         "response_hash": "",
+        "curl_stderr": None,
+        "curl_exit_code": None,
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=timeout, proxies=proxies)
-        end_time = time.time()
-        latency = (end_time - start_time) * 1000
+        backend_result = make_request(backend_name or "requests", url, headers, timeout, proxy_url)
 
-        result["status_code"] = response.status_code
-        result["latency_ms"] = latency
-        result["headers"] = dict(response.headers)
-        result["response_size"] = len(response.content)
-        result["success"] = response.status_code == 200
+        result["latency_ms"] = backend_result.latency_ms
+        result["status_code"] = backend_result.status_code
+        result["headers"] = backend_result.headers
+        result["response_size"] = len(backend_result.body)
+        result["success"] = backend_result.success
+        result["curl_stderr"] = backend_result.stderr
+        result["curl_exit_code"] = backend_result.exit_code
 
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            data = {"raw_text": response.text[:5000]}
+        # Parse response body
+        body = backend_result.body
+        if not body:
+            result["raw_response"] = {"raw_text": ""}
+            result["classification"] = classify_api_response({}, backend_result.status_code or 0)
+        else:
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                data = {"raw_text": body[:5000]}
 
-        result["raw_response"] = data
-        result["classification"] = classify_api_response(data, response.status_code)
+            result["raw_response"] = data
+            result["response_hash"] = hashlib.sha256(body.encode()).hexdigest()
+            result["classification"] = classify_api_response(data, backend_result.status_code or 0)
 
-    except requests.exceptions.Timeout:
-        end_time = time.time()
-        result["latency_ms"] = (end_time - start_time) * 1000
-        result["error_message"] = "Request timeout"
-        result["exception_type"] = "Timeout"
-        result["classification"] = "ERROR"
-        result["traceback"] = traceback.format_exc()
-
-    except requests.exceptions.ConnectionError as e:
-        end_time = time.time()
-        result["latency_ms"] = (end_time - start_time) * 1000
-        result["error_message"] = str(e)[:500]
-        result["exception_type"] = "ConnectionError"
-        result["classification"] = "ERROR" if not proxy_enabled else "UNKNOWN"
-        result["traceback"] = traceback.format_exc()
+        if backend_result.error:
+            result["error_message"] = backend_result.error
+            result["exception_type"] = f"BackendError({backend_name})"
 
     except Exception as e:
-        end_time = time.time()
-        result["latency_ms"] = (end_time - start_time) * 1000
         result["error_message"] = str(e)[:500]
         result["exception_type"] = type(e).__name__
         result["classification"] = "ERROR"
@@ -330,7 +335,7 @@ def check_playwright_direct(username: str, config: Dict[str, Any]) -> Dict[str, 
     return result
 
 
-def check_account(username: str, config: Dict[str, Any], should_stop: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
+def check_account(username: str, config: Dict[str, Any], should_stop: Optional[Callable[[], bool]] = None, backend_name: Optional[str] = None) -> Dict[str, Any]:
     mode = config.get("mode", "api_direct")
     max_retries = config.get("retry_count", 3)
     backoff = config.get("retry_backoff", 2.0)
@@ -349,7 +354,7 @@ def check_account(username: str, config: Dict[str, Any], should_stop: Optional[C
             }
         try:
             if mode in ("api_direct", "api_proxy"):
-                result = check_api_direct(username, config)
+                result = check_api_direct(username, config, backend_name=backend_name)
             elif mode in ("playwright_direct", "playwright_proxy"):
                 result = check_playwright_direct(username, config)
             else:
@@ -401,3 +406,23 @@ def check_account(username: str, config: Dict[str, Any], should_stop: Optional[C
         "latency_ms": 0,
         "start_time": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def check_account_test_backends(username: str, config: Dict[str, Any]) -> list:
+    test_backends = config.get("api", {}).get("test_backends", ["curl", "requests", "httpx"])
+    results = []
+    for backend_name in test_backends:
+        try:
+            result = check_account(username, config, backend_name=backend_name)
+            result["backend"] = backend_name
+            results.append(result)
+        except Exception as e:
+            results.append({
+                "username": username,
+                "backend": backend_name,
+                "classification": "ERROR",
+                "error_message": str(e)[:500],
+                "success": False,
+                "latency_ms": 0,
+            })
+    return results

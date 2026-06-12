@@ -28,7 +28,7 @@ from typing import Dict, Any, List, Optional
 import yaml
 
 from db import Database
-from checkers import check_account, save_raw_response, get_user_agent
+from checkers import check_account, check_account_test_backends, save_raw_response, get_user_agent
 
 logger = logging.getLogger("instagram_monitor")
 
@@ -102,15 +102,32 @@ class MetricsTracker:
         self.proxy_error_count = 0
         self.browser_error_count = 0
         self.transition_count = 0
+        # Backend tracking
+        self.backend_counts: Dict[str, int] = {}
+        self.backend_success: Dict[str, int] = {}
+        self.backend_failure: Dict[str, int] = {}
+        self.backend_latencies: Dict[str, List[float]] = {}
 
     def record_check(self, result: Dict[str, Any], transition: bool):
         self.total_requests += 1
         classification = result.get("classification", "ERROR")
+        backend = result.get("backend", "unknown")
 
+        # Backend tracking
+        self.backend_counts[backend] = self.backend_counts.get(backend, 0) + 1
         if result.get("success", False):
             self.successful_requests += 1
+            self.backend_success[backend] = self.backend_success.get(backend, 0) + 1
         else:
             self.failed_requests += 1
+            self.backend_failure[backend] = self.backend_failure.get(backend, 0) + 1
+
+        latency = result.get("latency_ms", 0)
+        if latency > 0:
+            self.latencies.append(latency)
+            if backend not in self.backend_latencies:
+                self.backend_latencies[backend] = []
+            self.backend_latencies[backend].append(latency)
 
         if classification == "ACTIVE":
             self.active_count += 1
@@ -120,10 +137,6 @@ class MetricsTracker:
             self.unknown_count += 1
         elif classification == "ERROR":
             self.error_count += 1
-
-        latency = result.get("latency_ms", 0)
-        if latency > 0:
-            self.latencies.append(latency)
 
         exc_type = result.get("exception_type", "")
         if exc_type == "Timeout" or result.get("error_message", "") == "Request timeout":
@@ -139,6 +152,18 @@ class MetricsTracker:
 
     def to_dict(self) -> Dict[str, Any]:
         latencies = self.latencies[-1000:] if self.latencies else [0]
+
+        # Backend summary
+        backend_summary = {}
+        for b in self.backend_counts:
+            b_latencies = self.backend_latencies.get(b, [0])
+            backend_summary[b] = {
+                "total": self.backend_counts.get(b, 0),
+                "success": self.backend_success.get(b, 0),
+                "failure": self.backend_failure.get(b, 0),
+                "latency_avg": sum(b_latencies[-1000:]) / len(b_latencies[-1000:]) if b_latencies else 0,
+            }
+
         return {
             "requests_total": self.total_requests,
             "requests_success": self.successful_requests,
@@ -155,6 +180,7 @@ class MetricsTracker:
             "proxy_error_count": self.proxy_error_count,
             "browser_error_count": self.browser_error_count,
             "transition_count": self.transition_count,
+            "backends": backend_summary,
         }
 
 
@@ -207,6 +233,7 @@ def process_check_result(
         "run_id": run_id,
         "timestamp": now,
         "mode": result.get("mode", "unknown"),
+        "backend": result.get("backend", "unknown"),
         "proxy_enabled": 1 if result.get("proxy_enabled") else 0,
         "user_agent": result.get("user_agent", ""),
         "status_code": result.get("status_code"),
@@ -223,6 +250,8 @@ def process_check_result(
         "response_size": result.get("response_size", 0),
         "response_hash": response_hash,
         "screenshot_path": result.get("screenshot"),
+        "curl_stderr": result.get("curl_stderr"),
+        "curl_exit_code": result.get("curl_exit_code"),
     }
 
     try:
@@ -372,17 +401,35 @@ def run_monitor(config: Dict[str, Any]):
 
             try:
                 logger.info(f"Checking {username} ({idx + 1}/{len(usernames)})")
-                result = check_account(username, config, should_stop=lambda: shutdown_requested)
-                process_check_result(db, config, username, result, run_id, metrics)
 
-                classification = result.get("classification", "ERROR")
-                latency = result.get("latency_ms", 0)
-                logger.info(
-                    f"  {username}: {classification} "
-                    f"latency={latency:.0f}ms "
-                    f"status_code={result.get('status_code', 'N/A')} "
-                    f"retries={result.get('retry_count', 0)}"
-                )
+                # Test backends mode: run all backends for comparison
+                test_backends = config.get("api", {}).get("test_backends")
+                if test_backends:
+                    results = check_account_test_backends(username, config)
+                    for r in results:
+                        process_check_result(db, config, username, r, run_id, metrics)
+                        backend = r.get("backend", "?")
+                        classification = r.get("classification", "ERROR")
+                        latency = r.get("latency_ms", 0)
+                        status_code = r.get("status_code", "N/A")
+                        logger.info(
+                            f"  {username} [{backend}]: {classification} "
+                            f"latency={latency:.0f}ms "
+                            f"status_code={status_code}"
+                        )
+                else:
+                    result = check_account(username, config, should_stop=lambda: shutdown_requested)
+                    process_check_result(db, config, username, result, run_id, metrics)
+
+                    classification = result.get("classification", "ERROR")
+                    latency = result.get("latency_ms", 0)
+                    backend = result.get("backend", config.get("api", {}).get("backend", "requests"))
+                    logger.info(
+                        f"  {username} [{backend}]: {classification} "
+                        f"latency={latency:.0f}ms "
+                        f"status_code={result.get('status_code', 'N/A')} "
+                        f"retries={result.get('retry_count', 0)}"
+                    )
 
             except Exception as e:
                 logger.error(f"Unexpected error checking {username}: {e}")

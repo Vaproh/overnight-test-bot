@@ -39,6 +39,7 @@ class Database:
                 run_id TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 mode TEXT NOT NULL,
+                backend TEXT DEFAULT 'unknown',
                 proxy_enabled INTEGER NOT NULL DEFAULT 0,
                 user_agent TEXT,
                 status_code INTEGER,
@@ -55,6 +56,8 @@ class Database:
                 response_size INTEGER DEFAULT 0,
                 response_hash TEXT,
                 screenshot_path TEXT,
+                curl_stderr TEXT,
+                curl_exit_code INTEGER,
                 FOREIGN KEY (account_id) REFERENCES accounts(id)
             );
 
@@ -168,15 +171,17 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT INTO checks (
-                account_id, run_id, timestamp, mode, proxy_enabled, user_agent,
+                account_id, run_id, timestamp, mode, backend, proxy_enabled, user_agent,
                 status_code, latency_ms, success, classification, raw_response_path,
                 raw_response_blob, headers_blob, error_message, exception_type,
-                traceback, retry_count, response_size, response_hash, screenshot_path
+                traceback, retry_count, response_size, response_hash, screenshot_path,
+                curl_stderr, curl_exit_code
             ) VALUES (
-                :account_id, :run_id, :timestamp, :mode, :proxy_enabled, :user_agent,
+                :account_id, :run_id, :timestamp, :mode, :backend, :proxy_enabled, :user_agent,
                 :status_code, :latency_ms, :success, :classification, :raw_response_path,
                 :raw_response_blob, :headers_blob, :error_message, :exception_type,
-                :traceback, :retry_count, :response_size, :response_hash, :screenshot_path
+                :traceback, :retry_count, :response_size, :response_hash, :screenshot_path,
+                :curl_stderr, :curl_exit_code
             )
         """, check_data)
         self.conn.commit()

@@ -11,6 +11,11 @@ proxy:
   username: ""
   password: ""
 
+# API backend: requests | httpx | curl
+api:
+  backend: curl
+  # test_backends: [curl, requests, httpx]  # uncomment to test all backends per check
+
 # Request settings
 request_timeout: 30
 retry_count: 3

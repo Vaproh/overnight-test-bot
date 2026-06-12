@@ -4,6 +4,10 @@ mode: api_direct
 proxy:
   enabled: false
 
+api:
+  backend: curl
+  test_backends: [curl, requests]
+
 request_timeout: 10
 retry_count: 1
 retry_backoff: 1.0
