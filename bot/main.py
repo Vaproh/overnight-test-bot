@@ -30,6 +30,7 @@ def main():
         telegram_bot = TelegramBot(config, db, monitor)
         telegram_bot.build()
         monitor.notify_fn = telegram_bot.notify
+        monitor.notify_photo_fn = telegram_bot.notify_photo
 
     def shutdown(signum, frame):
         monitor.stop()

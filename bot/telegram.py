@@ -242,3 +242,51 @@ class TelegramBot:
             )
         except Exception as e:
             logger.error(f"Failed to send Telegram notification: {e}")
+
+    def notify_photo(self, photo_path: str, caption: str):
+        if not self.app or not self.app.bot:
+            logger.warning("Telegram bot not initialized, cannot send photo")
+            return
+
+        try:
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                asyncio.ensure_future(self._send_photo(photo_path, caption))
+            elif loop:
+                loop.run_until_complete(self._send_photo(photo_path, caption))
+            else:
+                asyncio.run(self._send_photo(photo_path, caption))
+        except Exception as e:
+            logger.error(f"Failed to queue photo: {e}")
+
+    async def _send_photo(self, photo_path: str, caption: str):
+        try:
+            chat_id = self.config.telegram_chat_id
+            if not chat_id:
+                logger.warning("No telegram_chat_id configured, skipping photo")
+                return
+
+            import os
+            if not os.path.exists(photo_path):
+                logger.warning(f"Screenshot not found: {photo_path}")
+                await self.app.bot.send_message(
+                    chat_id=chat_id,
+                    text=caption,
+                    parse_mode="Markdown",
+                )
+                return
+
+            with open(photo_path, "rb") as photo:
+                await self.app.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo,
+                    caption=caption,
+                    parse_mode="Markdown",
+                )
+        except Exception as e:
+            logger.error(f"Failed to send Telegram photo: {e}")

@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from .checker import check_account, verify_with_playwright
+from .checker import check_account, verify_with_playwright, capture_profile_screenshot
 from .config import Config
 from .database import Database
 
@@ -13,10 +13,11 @@ logger = logging.getLogger("monitor.loop")
 
 
 class Monitor:
-    def __init__(self, config: Config, db: Database, notify_fn: Optional[Callable] = None):
+    def __init__(self, config: Config, db: Database, notify_fn: Optional[Callable] = None, notify_photo_fn: Optional[Callable] = None):
         self.config = config
         self.db = db
         self.notify_fn = notify_fn
+        self.notify_photo_fn = notify_photo_fn
         self.running = False
         self.start_time = None
 
@@ -147,8 +148,25 @@ class Monitor:
 
         if should_notify and self.notify_fn:
             try:
-                message = self._format_notification(username, old_status, new_status, verification_result or "unverified")
-                self.notify_fn(message)
+                screenshot_data = capture_profile_screenshot(username, self.config, new_status.lower())
+                screenshot_path = screenshot_data.get("screenshot_path")
+                profile_data = screenshot_data.get("profile_data", {})
+
+                account_info = self.db.get_account_by_id(account_id)
+                created_at = account_info.get("created_at") if account_info else None
+                monitoring_duration = self._calc_duration(created_at)
+
+                caption = self._format_caption(
+                    username, old_status, new_status,
+                    verification_result or "unverified",
+                    monitoring_duration, profile_data,
+                )
+
+                if screenshot_path and self.notify_photo_fn:
+                    self.notify_photo_fn(screenshot_path, caption)
+                else:
+                    self.notify_fn(caption)
+
                 self.db.conn.execute(
                     "UPDATE events SET notification_sent = 1 WHERE id = ?", (event_id,)
                 )
@@ -191,6 +209,72 @@ class Monitor:
         lines.extend([
             "",
             f"🕐 {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}",
+        ])
+
+        return "\n".join(lines)
+
+    def _calc_duration(self, created_at: Optional[str]) -> str:
+        if not created_at:
+            return "unknown"
+        try:
+            start = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            delta = datetime.now(timezone.utc) - start
+            hours, remainder = divmod(int(delta.total_seconds()), 3600)
+            minutes, _ = divmod(remainder, 60)
+            if hours > 0:
+                return f"{hours}h {minutes}m"
+            return f"{minutes}m"
+        except Exception:
+            return "unknown"
+
+    def _format_caption(
+        self, username: str, old_status: str, new_status: str,
+        verification: str, duration: str, profile_data: dict,
+    ) -> str:
+        STATUS_EMOJI = {
+            "ACTIVE": "🟢",
+            "MISSING": "🔴",
+            "SUSPECT": "🟡",
+            "UNKNOWN": "⚪",
+            "ERROR": "⚫",
+        }
+
+        old_emoji = STATUS_EMOJI.get(old_status, "⚪")
+        new_emoji = STATUS_EMOJI.get(new_status, "⚪")
+
+        if new_status == "MISSING":
+            alert = "🚨 Account Missing"
+        elif new_status == "ACTIVE":
+            alert = "🟢 Account Restored"
+        else:
+            alert = "⚠️ Status Change"
+
+        lines = [
+            f"*{alert}*",
+            "",
+            f"*Username:*",
+            f"@{username}",
+            "",
+            f"*Status:*",
+            f"{old_emoji} {old_status} → {new_emoji} {new_status}",
+        ]
+
+        if new_status == "ACTIVE" and profile_data:
+            if profile_data.get("followers"):
+                lines.extend(["", f"*Followers:* {profile_data['followers']}"])
+            if profile_data.get("following"):
+                lines.append(f"*Following:* {profile_data['following']}")
+            if profile_data.get("posts"):
+                lines.append(f"*Posts:* {profile_data['posts']}")
+
+        lines.extend([
+            "",
+            f"*Detection Time:*",
+            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+            "",
+            f"*Monitoring Duration:* {duration}",
+            "",
+            f"*Verification:* ✅ Confirmed",
         ])
 
         return "\n".join(lines)

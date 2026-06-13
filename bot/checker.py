@@ -156,6 +156,82 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
     return result
 
 
+def capture_profile_screenshot(username: str, config: Config, status: str = "unknown") -> dict:
+    from playwright.sync_api import sync_playwright
+
+    result = {
+        "screenshot_path": None,
+        "profile_data": {},
+    }
+
+    url = f"https://www.instagram.com/{username}/"
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=config.playwright.headless)
+            context = browser.new_context(
+                user_agent=config.user_agent,
+                viewport={"width": 1080, "height": 1350},
+            )
+            page = context.new_page()
+
+            page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
+            page.wait_for_timeout(4000)
+
+            profile_data = _extract_profile_data(page)
+            result["profile_data"] = profile_data
+
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            screenshot_dir = os.path.join(config.screenshots_dir, date_str)
+            os.makedirs(screenshot_dir, exist_ok=True)
+
+            ts = datetime.now(timezone.utc).strftime("%H%M%S")
+            filename = f"{username}_{status}_{ts}.png"
+            screenshot_path = os.path.join(screenshot_dir, filename)
+
+            page.screenshot(path=screenshot_path, full_page=False)
+            result["screenshot_path"] = screenshot_path
+
+            browser.close()
+
+    except Exception as e:
+        logger.error(f"Screenshot capture failed for {username}: {e}")
+
+    return result
+
+
+def _extract_profile_data(page) -> dict:
+    data = {}
+
+    try:
+        meta_desc = page.query_selector('meta[name="description"]')
+        if meta_desc:
+            content = meta_desc.get_attribute("content") or ""
+            followers_match = __import__("re").search(r"([\d,.]+[KMB]?) Followers", content)
+            following_match = __import__("re").search(r"([\d,.]+[KMB]?) Following", content)
+            posts_match = __import__("re").search(r"([\d,.]+[KMB]?) Posts", content)
+
+            if followers_match:
+                data["followers"] = followers_match.group(1)
+            if following_match:
+                data["following"] = following_match.group(1)
+            if posts_match:
+                data["posts"] = posts_match.group(1)
+    except Exception:
+        pass
+
+    try:
+        bio_elem = page.query_selector("section main header section div div span")
+        if bio_elem:
+            bio = bio_elem.inner_text().strip()
+            if bio and len(bio) < 200:
+                data["bio"] = bio
+    except Exception:
+        pass
+
+    return data
+
+
 def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
     result = {
         "username": username,
