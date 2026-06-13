@@ -714,8 +714,7 @@ class TelegramBot:
                 f"📥 <b>Remaining:</b> {fmt_bytes(left_bytes)}\n\n"
                 f"<code>[{bar}]</code> {pct_used:.1f}%\n\n"
                 f"💰 <b>Rate:</b> ${rate_per_gb:.1f}/GB\n"
-                f"💸 <b>Cost So Far:</b> ${cost:.2f}\n\n"
-                f"🔗 <b>Server:</b> {self.config.proxy.server}"
+                f"💸 <b>Cost So Far:</b> ${cost:.2f}"
             )
 
             await update.message.reply_text(text, parse_mode="HTML")
