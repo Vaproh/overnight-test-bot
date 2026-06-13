@@ -245,17 +245,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             screenshot_path = os.path.join(screenshot_dir, filename)
 
             if status == "active":
-                header = None
-                headers = await page.query_selector_all("header")
-                for h in headers:
-                    text = await h.inner_text()
-                    if "following" in text.lower():
-                        header = h
-                        break
-
-                if not header and headers:
-                    header = headers[-1]
-
+                header = await page.query_selector('xpath=/html/body/div[1]/div/div/div[2]/div/div/div[1]/div[1]/div/header')
                 if header:
                     await header.screenshot(path=screenshot_path)
                 else:
