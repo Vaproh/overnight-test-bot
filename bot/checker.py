@@ -179,6 +179,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
             await page.wait_for_timeout(4000)
 
+            await _dismiss_popups(page)
+            await page.wait_for_timeout(500)
+
             profile_data = await _extract_profile_data_async(page)
             result["profile_data"] = profile_data
 
@@ -190,7 +193,12 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             filename = f"{username}_{status}_{ts}.png"
             screenshot_path = os.path.join(screenshot_dir, filename)
 
-            await page.screenshot(path=screenshot_path, full_page=False)
+            profile_section = await page.query_selector("section main")
+            if profile_section:
+                await profile_section.screenshot(path=screenshot_path)
+            else:
+                await page.screenshot(path=screenshot_path, full_page=False)
+
             result["screenshot_path"] = screenshot_path
 
             await browser.close()
@@ -211,6 +219,42 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
         logger.error(f"Screenshot capture failed for {username}: {e}")
 
     return result
+
+
+async def _dismiss_popups(page):
+    try:
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+    except Exception:
+        pass
+
+    try:
+        close_selectors = [
+            'button[aria-label="Close"]',
+            'button:has-text("Not Now")',
+            'button:has-text("Cancel")',
+            'div[role="dialog"] button svg[aria-label="Close"]',
+            'div[role="dialog"] button:has-text("Not Now")',
+        ]
+        for selector in close_selectors:
+            try:
+                btn = await page.query_selector(selector)
+                if btn:
+                    await btn.click()
+                    await page.wait_for_timeout(500)
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    try:
+        dialog = await page.query_selector('div[role="dialog"]')
+        if dialog:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(500)
+    except Exception:
+        pass
 
 
 async def _extract_profile_data_async(page) -> dict:
