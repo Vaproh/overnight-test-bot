@@ -2,3 +2,4 @@ pyyaml
 python-telegram-bot
 curl_cffi
 playwright
+Pillow

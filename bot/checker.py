@@ -245,9 +245,21 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             screenshot_path = os.path.join(screenshot_dir, filename)
 
             if status == "active":
-                await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 50, "width": 412, "height": 425})
+                tmp_path = screenshot_path + ".tmp.png"
+                await page.screenshot(path=tmp_path, full_page=False)
+                from PIL import Image
+                img = Image.open(tmp_path)
+                cropped = img.crop((0, 50, 412, 475))
+                cropped.save(screenshot_path)
+                os.remove(tmp_path)
             else:
-                await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 412, "height": 800})
+                tmp_path = screenshot_path + ".tmp.png"
+                await page.screenshot(path=tmp_path, full_page=False)
+                from PIL import Image
+                img = Image.open(tmp_path)
+                cropped = img.crop((0, 0, 412, 800))
+                cropped.save(screenshot_path)
+                os.remove(tmp_path)
 
             result["screenshot_path"] = screenshot_path
 
