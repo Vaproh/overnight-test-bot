@@ -39,6 +39,14 @@ class PlaywrightConfig:
 
 
 @dataclass
+class InstagramAuth:
+    enabled: bool = False
+    username: str = ""
+    password: str = ""
+    cookies_path: str = "./data/cookies.json"
+
+
+@dataclass
 class Config:
     telegram_token: str = ""
     telegram_chat_id: str = ""
@@ -47,6 +55,7 @@ class Config:
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     retry: RetryConfig = field(default_factory=RetryConfig)
     playwright: PlaywrightConfig = field(default_factory=PlaywrightConfig)
+    instagram_auth: InstagramAuth = field(default_factory=InstagramAuth)
     database_path: str = "./data/monitor.db"
     raw_responses_dir: str = "./data/raw_responses"
     logs_dir: str = "./data/logs"
@@ -67,6 +76,7 @@ class Config:
         proxy_data = data.get("proxy", {})
         retry_data = data.get("retry", {})
         pw_data = data.get("playwright", {})
+        ig_data = data.get("instagram_auth", {})
 
         return cls(
             telegram_token=data.get("telegram_token", ""),
@@ -87,6 +97,12 @@ class Config:
                 enabled=pw_data.get("enabled", True),
                 headless=pw_data.get("headless", True),
                 timeout=pw_data.get("timeout", 30000),
+            ),
+            instagram_auth=InstagramAuth(
+                enabled=ig_data.get("enabled", False),
+                username=ig_data.get("username", ""),
+                password=ig_data.get("password", ""),
+                cookies_path=ig_data.get("cookies_path", "./data/cookies.json"),
             ),
             database_path=data.get("database_path", "./data/monitor.db"),
             raw_responses_dir=data.get("raw_responses_dir", "./data/raw_responses"),

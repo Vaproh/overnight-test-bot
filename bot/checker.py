@@ -7,13 +7,91 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .config import Config
 
 logger = logging.getLogger("monitor.checker")
 
 API_URL = "https://i.instagram.com/api/v1/users/web_profile_info/?username={}"
+
+
+def load_cookies(cookies_path: str) -> Optional[List[dict]]:
+    if not os.path.exists(cookies_path):
+        return None
+    try:
+        with open(cookies_path, "r") as f:
+            cookies = json.load(f)
+        if cookies:
+            logger.info(f"Loaded {len(cookies)} cookies from {cookies_path}")
+            return cookies
+    except Exception as e:
+        logger.error(f"Failed to load cookies: {e}")
+    return None
+
+
+def save_cookies(cookies_path: str, cookies: List[dict]):
+    try:
+        os.makedirs(os.path.dirname(cookies_path) if os.path.dirname(cookies_path) else ".", exist_ok=True)
+        with open(cookies_path, "w") as f:
+            json.dump(cookies, f, indent=2)
+        logger.info(f"Saved {len(cookies)} cookies to {cookies_path}")
+    except Exception as e:
+        logger.error(f"Failed to save cookies: {e}")
+
+
+async def instagram_login(page, config) -> bool:
+    auth = config.instagram_auth
+    if not auth.enabled or not auth.username or not auth.password:
+        return False
+
+    cookies = load_cookies(auth.cookies_path)
+    if cookies:
+        await page.context.add_cookies(cookies)
+        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
+        await page.wait_for_timeout(3000)
+
+        current_url = page.url
+        if "/accounts/login" not in current_url:
+            logger.info("Logged in via saved cookies")
+            return True
+        logger.info("Cookies expired, logging in fresh")
+
+    try:
+        await page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
+
+        username_input = await page.query_selector('input[name="username"]')
+        password_input = await page.query_selector('input[name="password"]')
+
+        if not username_input or not password_input:
+            logger.error("Login form not found")
+            return False
+
+        await username_input.fill(auth.username)
+        await page.wait_for_timeout(500)
+        await password_input.fill(auth.password)
+        await page.wait_for_timeout(500)
+
+        login_btn = await page.query_selector('button[type="submit"]')
+        if login_btn:
+            await login_btn.click()
+
+        await page.wait_for_timeout(5000)
+
+        current_url = page.url
+        if "/accounts/login" not in current_url:
+            new_cookies = await page.context.cookies()
+            save_cookies(auth.cookies_path, new_cookies)
+            logger.info("Logged in successfully, cookies saved")
+            return True
+
+        logger.error("Login failed")
+        return False
+
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return False
 
 
 def build_headers(user_agent: str) -> Dict[str, str]:
@@ -176,6 +254,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             )
             page = await context.new_page()
 
+            if config.instagram_auth.enabled:
+                await instagram_login(page, config)
+
             await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
             await page.wait_for_timeout(4000)
 
@@ -321,6 +402,9 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
                 viewport={"width": 1920, "height": 1080},
             )
             page = await context.new_page()
+
+            if config.instagram_auth.enabled:
+                await instagram_login(page, config)
 
             response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
             await page.wait_for_timeout(3000)
