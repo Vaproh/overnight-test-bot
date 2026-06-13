@@ -158,16 +158,41 @@ class Monitor:
                 logger.error(f"Failed to send notification for {username}: {e}")
 
     def _format_notification(self, username: str, old_status: str, new_status: str, verification: str) -> str:
-        arrow = "↓"
+        STATUS_EMOJI = {
+            "ACTIVE": "🟢",
+            "MISSING": "🔴",
+            "SUSPECT": "🟡",
+            "UNKNOWN": "⚪",
+            "ERROR": "⚫",
+        }
+
+        old_emoji = STATUS_EMOJI.get(old_status, "⚪")
+        new_emoji = STATUS_EMOJI.get(new_status, "⚪")
+
+        if new_status == "MISSING":
+            alert = "🚨 *ACCOUNT DOWN*"
+        elif new_status == "ACTIVE":
+            alert = "✅ *ACCOUNT RESTORED*"
+        else:
+            alert = "⚠️ *STATUS CHANGE*"
+
         lines = [
-            f"Account Status Change",
-            f"",
-            f"@{username}",
-            f"{old_status} {arrow} {new_status}",
+            alert,
+            "━━━━━━━━━━━━━━━━━━━",
+            "",
+            f"📸 *@{username}*",
+            "",
+            f"{old_emoji} {old_status}  →  {new_emoji} {new_status}",
         ]
+
         if verification:
-            lines.append(f"Verification: {verification}")
-        lines.append(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            lines.append(f"🔍 Verified: `{verification}`")
+
+        lines.extend([
+            "",
+            f"🕐 {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}",
+        ])
+
         return "\n".join(lines)
 
     def _interruptible_sleep(self, seconds: float):

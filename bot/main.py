@@ -38,6 +38,7 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
 
     if telegram_bot and telegram_bot.app:
+        telegram_bot.app.post_init = telegram_bot.post_init
         monitor_thread = threading.Thread(target=monitor.start, daemon=True)
         monitor_thread.start()
         telegram_bot.app.run_polling()

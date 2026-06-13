@@ -1,9 +1,10 @@
 """Telegram bot interface."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from .config import Config
@@ -11,6 +12,15 @@ from .database import Database
 from .monitor import Monitor
 
 logger = logging.getLogger("monitor.telegram")
+
+STATUS_EMOJI = {
+    "ACTIVE": "🟢",
+    "MISSING": "🔴",
+    "SUSPECT": "🟡",
+    "UNKNOWN": "⚪",
+    "ERROR": "⚫",
+    "RATE_LIMITED": "🟠",
+}
 
 
 class TelegramBot:
@@ -24,6 +34,7 @@ class TelegramBot:
         self.app = Application.builder().token(self.config.telegram_token).build()
 
         self.app.add_handler(CommandHandler("start", self.cmd_start))
+        self.app.add_handler(CommandHandler("help", self.cmd_help))
         self.app.add_handler(CommandHandler("health", self.cmd_health))
         self.app.add_handler(CommandHandler("accounts", self.cmd_accounts))
         self.app.add_handler(CommandHandler("add", self.cmd_add))
@@ -32,13 +43,42 @@ class TelegramBot:
 
         return self.app
 
+    async def post_init(self, application: Application):
+        commands = [
+            BotCommand("start", "Start the bot"),
+            BotCommand("help", "Show available commands"),
+            BotCommand("health", "Bot health & uptime"),
+            BotCommand("accounts", "List monitored accounts"),
+            BotCommand("add", "Add account — /add username"),
+            BotCommand("remove", "Remove account — /remove username"),
+            BotCommand("check", "Manual check — /check username"),
+        ]
+        await application.bot.set_my_commands(commands)
+
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text(
-            "Instagram Monitor Bot\n"
-            "Status: Running\n"
-            f"Accounts: {len(self.config.accounts)}\n"
-            f"Interval: {self.config.check_interval}s"
+        text = (
+            "📸 *Instagram Monitor*\n"
+            "━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🟢 *Status:* Running\n"
+            f"📡 *Monitoring:* {len(self.config.accounts)} accounts\n"
+            f"⏱ *Interval:* {self.config.check_interval}s\n\n"
+            "Use /help to see commands."
         )
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text = (
+            "📖 *Commands*\n"
+            "━━━━━━━━━━━━━━━━━━━\n\n"
+            "/start — Start the bot\n"
+            "/help — Show this message\n"
+            "/health — Bot status & uptime\n"
+            "/accounts — List monitored accounts\n"
+            "/add `username` — Add an account\n"
+            "/remove `username` — Remove an account\n"
+            "/check `username` — Manual check\n"
+        )
+        await update.message.reply_text(text, parse_mode="Markdown")
 
     async def cmd_health(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         accounts = self.db.get_all_accounts()
@@ -46,84 +86,127 @@ class TelegramBot:
         recent_events = self.db.get_recent_events(limit=5)
 
         lines = [
-            "Health Report",
-            f"Uptime: {self.monitor.get_uptime()}",
-            f"Monitored accounts: {len(accounts)}",
+            "🏥 *Health Report*",
+            "━━━━━━━━━━━━━━━━━━━",
             "",
-            "Recent Checks:",
+            f"⏱ *Uptime:* {self.monitor.get_uptime()}",
+            f"📡 *Accounts:* {len(accounts)}",
         ]
-        for c in recent_checks[:5]:
-            lines.append(f"  {c['username']}: {c['status']} ({c['latency_ms']:.0f}ms)")
+
+        if recent_checks:
+            lines.append("")
+            lines.append("📋 *Recent Checks:*")
+            for c in recent_checks[:5]:
+                emoji = STATUS_EMOJI.get(c["status"], "⚪")
+                lines.append(f"  {emoji} @{c['username']} — {c['status']} ({c['latency_ms']:.0f}ms)")
 
         if recent_events:
             lines.append("")
-            lines.append("Recent Events:")
+            lines.append("🔔 *Recent Events:*")
             for e in recent_events[:5]:
-                lines.append(f"  {e['username']}: {e['old_status']} -> {e['new_status']}")
+                old_e = STATUS_EMOJI.get(e["old_status"], "⚪")
+                new_e = STATUS_EMOJI.get(e["new_status"], "⚪")
+                lines.append(f"  {old_e}→{new_e} @{e['username']}")
 
-        await update.message.reply_text("\n".join(lines))
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     async def cmd_accounts(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         accounts = self.db.get_all_accounts()
         if not accounts:
-            await update.message.reply_text("No accounts being monitored.")
+            await update.message.reply_text(
+                "📭 *No accounts monitored*\n\nUse /add `username` to add one.",
+                parse_mode="Markdown",
+            )
             return
 
-        lines = ["Monitored Accounts:"]
+        lines = [
+            "📡 *Monitored Accounts*",
+            "━━━━━━━━━━━━━━━━━━━",
+            "",
+        ]
         for a in accounts:
-            lines.append(f"{a['status']}\n  @{a['username']}")
+            emoji = STATUS_EMOJI.get(a["status"], "⚪")
+            lines.append(f"{emoji} @{a['username']}")
 
-        await update.message.reply_text("\n".join(lines))
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     async def cmd_add(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
-            await update.message.reply_text("Usage: /add <username>")
+            await update.message.reply_text(
+                "📝 *Usage:* /add `username`",
+                parse_mode="Markdown",
+            )
             return
 
         username = context.args[0].lstrip("@")
         if username in self.config.accounts:
-            await update.message.reply_text(f"@{username} is already being monitored.")
+            await update.message.reply_text(
+                f"⚠️ @{username} is already being monitored.",
+                parse_mode="Markdown",
+            )
             return
 
         self.config.accounts.append(username)
         self.db.get_or_create_account(username)
-        await update.message.reply_text(f"Added @{username} to monitoring.")
+        await update.message.reply_text(
+            f"✅ *@{username}* added to monitoring.",
+            parse_mode="Markdown",
+        )
 
     async def cmd_remove(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
-            await update.message.reply_text("Usage: /remove <username>")
+            await update.message.reply_text(
+                "📝 *Usage:* /remove `username`",
+                parse_mode="Markdown",
+            )
             return
 
         username = context.args[0].lstrip("@")
         if username not in self.config.accounts:
-            await update.message.reply_text(f"@{username} is not being monitored.")
+            await update.message.reply_text(
+                f"❌ @{username} is not being monitored.",
+                parse_mode="Markdown",
+            )
             return
 
         self.config.accounts.remove(username)
         self.db.remove_account(username)
-        await update.message.reply_text(f"Removed @{username} from monitoring.")
+        await update.message.reply_text(
+            f"🗑 *@{username}* removed from monitoring.",
+            parse_mode="Markdown",
+        )
 
     async def cmd_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
-            await update.message.reply_text("Usage: /check <username>")
+            await update.message.reply_text(
+                "📝 *Usage:* /check `username`",
+                parse_mode="Markdown",
+            )
             return
 
         username = context.args[0].lstrip("@")
-        await update.message.reply_text(f"Checking @{username}...")
+        await update.message.reply_text(f"🔍 Checking @{username}...")
 
         try:
             result = self.monitor.check_single(username)
-            lines = [
-                f"Check Result for @{username}:",
-                f"Status: {result['status']}",
-                f"Previous: {result.get('old_status', 'N/A')}",
-                f"Transition: {'Yes' if result['transition'] else 'No'}",
-                f"Latency: {result['latency_ms']:.0f}ms",
-                f"Status Code: {result.get('status_code', 'N/A')}",
-            ]
-            await update.message.reply_text("\n".join(lines))
+            emoji = STATUS_EMOJI.get(result["status"], "⚪")
+            transition = "⚡ Yes" if result["transition"] else "— No"
+
+            text = (
+                f"📸 *@{username}*\n"
+                "━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{emoji} *Status:* {result['status']}\n"
+                f"📊 *Previous:* {result.get('old_status', 'N/A')}\n"
+                f"⚡ *Transition:* {transition}\n"
+                f"🏎 *Latency:* {result['latency_ms']:.0f}ms\n"
+                f"🔢 *HTTP:* {result.get('status_code', 'N/A')}"
+            )
+            await update.message.reply_text(text, parse_mode="Markdown")
         except Exception as e:
-            await update.message.reply_text(f"Error checking @{username}: {e}")
+            await update.message.reply_text(
+                f"❌ Error checking @{username}:\n`{e}`",
+                parse_mode="Markdown",
+            )
 
     def notify(self, message: str):
         if not self.app or not self.app.bot:
@@ -155,6 +238,7 @@ class TelegramBot:
             await self.app.bot.send_message(
                 chat_id=chat_id,
                 text=message,
+                parse_mode="Markdown",
             )
         except Exception as e:
             logger.error(f"Failed to send Telegram notification: {e}")
