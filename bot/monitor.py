@@ -23,6 +23,9 @@ class Monitor:
     def start(self):
         self.running = True
         self.start_time = datetime.now(timezone.utc)
+
+        self._run_startup_verification()
+
         logger.info(f"Monitor started, checking {len(self.config.accounts)} accounts every {self.config.check_interval}s")
 
         for username in self.config.accounts:
@@ -33,6 +36,29 @@ class Monitor:
     def stop(self):
         self.running = False
         logger.info("Monitor stopping...")
+
+    def _run_startup_verification(self):
+        if not self.config.test_accounts:
+            return
+
+        logger.info(f"Startup verification: testing {len(self.config.test_accounts)} accounts")
+        all_pass = True
+
+        for username in self.config.test_accounts:
+            logger.info(f"  Verifying @{username}...")
+            try:
+                result = check_account(username, self.config)
+                status = result["classification"]
+                latency = result.get("latency_ms", 0)
+                logger.info(f"  @{username}: {status} ({latency:.0f}ms)")
+            except Exception as e:
+                logger.error(f"  @{username}: ERROR - {e}")
+                all_pass = False
+
+        if all_pass:
+            logger.info("Startup verification: ALL PASS")
+        else:
+            logger.warning("Startup verification: SOME FAILURES - check logs")
 
     def _run_loop(self):
         while self.running:
