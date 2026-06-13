@@ -214,8 +214,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             browser = await p.chromium.launch(headless=config.playwright.headless)
             context = await browser.new_context(
                 user_agent=config.user_agent,
-                viewport={"width": 1080, "height": 1350},
+                viewport={"width": 430, "height": 932},
                 color_scheme="dark",
+                device_scale_factor=2,
             )
             page = await context.new_page()
 
@@ -245,13 +246,13 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
 
             header = await page.query_selector("header")
             if header:
-                await header.screenshot(path=screenshot_path)
-            else:
-                profile_section = await page.query_selector("section main")
-                if profile_section:
-                    await profile_section.screenshot(path=screenshot_path)
+                box = await header.bounding_box()
+                if box and box["height"] > 50:
+                    await header.screenshot(path=screenshot_path)
                 else:
-                    await page.screenshot(path=screenshot_path, full_page=False)
+                    await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 1080, "height": 600})
+            else:
+                await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 1080, "height": 600})
 
             result["screenshot_path"] = screenshot_path
 
