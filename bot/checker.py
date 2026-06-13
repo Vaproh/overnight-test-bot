@@ -213,10 +213,10 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=config.playwright.headless)
             context = await browser.new_context(
-                user_agent=config.user_agent,
-                viewport={"width": 430, "height": 932},
+                user_agent="Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                viewport={"width": 412, "height": 915},
+                device_scale_factor=2.625,
                 color_scheme="dark",
-                device_scale_factor=2,
             )
             page = await context.new_page()
 
@@ -244,15 +244,21 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             filename = f"{username}_{status}_{ts}.png"
             screenshot_path = os.path.join(screenshot_dir, filename)
 
-            header = await page.query_selector("header")
+            header = None
+            headers = await page.query_selector_all("header")
+            for h in headers:
+                text = await h.inner_text()
+                if "following" in text.lower():
+                    header = h
+                    break
+
+            if not header and headers:
+                header = headers[-1]
+
             if header:
-                box = await header.bounding_box()
-                if box and box["height"] > 50:
-                    await header.screenshot(path=screenshot_path)
-                else:
-                    await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 1080, "height": 600})
+                await header.screenshot(path=screenshot_path)
             else:
-                await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 1080, "height": 600})
+                await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 412, "height": 800})
 
             result["screenshot_path"] = screenshot_path
 
