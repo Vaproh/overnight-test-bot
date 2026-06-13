@@ -289,15 +289,9 @@ class TelegramBot:
         except Exception as e:
             await query.edit_message_text(f"❌ Error: <code>{e}</code>", parse_mode="HTML")
 
-    def _access_denied(self, update):
-        return update.message.reply_text(
-            f"⛔ <b>Access Denied</b>\n\nContact admin: {ADMIN_NOTIFY}",
-            parse_mode="HTML",
-        )
-
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         text = (
@@ -318,7 +312,7 @@ class TelegramBot:
 
     async def cmd_mainmenu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         kb = self._build_main_menu(self._is_admin(update))
@@ -330,7 +324,7 @@ class TelegramBot:
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         text = (
@@ -353,7 +347,7 @@ class TelegramBot:
 
     async def cmd_health(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         accounts = self.db.get_all_accounts()
@@ -387,7 +381,7 @@ class TelegramBot:
 
     async def cmd_accounts(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         accounts = self.db.get_all_accounts()
@@ -411,7 +405,7 @@ class TelegramBot:
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         accounts = self.db.get_all_accounts()
@@ -439,7 +433,7 @@ class TelegramBot:
 
     async def cmd_add(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         if not context.args:
@@ -516,7 +510,7 @@ class TelegramBot:
 
     async def cmd_remove(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         if not context.args:
@@ -543,7 +537,7 @@ class TelegramBot:
 
     async def cmd_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         if not context.args:
@@ -577,7 +571,7 @@ class TelegramBot:
 
     async def cmd_test(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         if not context.args:
@@ -637,7 +631,7 @@ class TelegramBot:
 
     async def cmd_ping(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         start = _time.time()
@@ -656,7 +650,7 @@ class TelegramBot:
 
     async def cmd_proxy(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
-            await self._access_denied(update)
+            await self._deny(update)
             return
 
         if not self.config.proxy.enabled:

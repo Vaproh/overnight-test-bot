@@ -143,13 +143,8 @@ class Database:
         return [row["username"] for row in cur.fetchall()]
 
     def cleanup_old_data(self, days: int = 7, raw_dir: str = "", screenshots_dir: str = "") -> dict:
-        cutoff = datetime.now(timezone.utc).isoformat()
-        try:
-            from datetime import timedelta
-            cutoff_dt = datetime.now(timezone.utc) - timedelta(days=days)
-            cutoff = cutoff_dt.isoformat()
-        except Exception:
-            pass
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         stats = {"checks": 0, "events": 0, "files": 0}
 

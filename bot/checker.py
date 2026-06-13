@@ -40,24 +40,6 @@ def save_cookies(cookies_path: str, cookies: List[dict]):
         logger.error(f"Failed to save cookies: {e}")
 
 
-def load_cookies_to_context(context, config):
-    if not config.instagram_auth.enabled:
-        return
-    cookies = load_cookies(config.instagram_auth.cookies_path)
-    if cookies:
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    loop.run_in_executor(pool, lambda: asyncio.run(context.add_cookies(cookies)))
-            else:
-                asyncio.run(context.add_cookies(cookies))
-        except Exception:
-            pass
-
-
 def build_headers(user_agent: str) -> Dict[str, str]:
     return {
         "User-Agent": user_agent,
