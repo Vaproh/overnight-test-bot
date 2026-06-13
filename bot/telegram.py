@@ -95,7 +95,7 @@ class TelegramBot:
             BotCommand("remove", "➖ Remove account"),
             BotCommand("check", "🔍 Manual check an account"),
             BotCommand("test", "🧪 Test account (no monitor)"),
-            BotCommand("proxy", "📊 DataImpulse traffic stats"),
+            BotCommand("proxy", "📊 Proxy traffic stats"),
             BotCommand("ping", "🏓 Check bot latency"),
             BotCommand("health", "🏥 Bot health & uptime"),
             BotCommand("setcookie", "🍪 Upload cookies (admin)"),
@@ -277,7 +277,7 @@ class TelegramBot:
             cost = (used / 1073741824) * 1.2
 
             text = (
-                "📊 <b>DataImpulse Proxy Stats</b>\n\n"
+                "📊 <b>Proxy Stats</b>\n\n"
                 f"📦 Total: {fmt(total)}\n"
                 f"📤 Used: {fmt(used)} ({pct:.1f}%)\n"
                 f"📥 Remaining: {fmt(left)}\n\n"
@@ -341,7 +341,7 @@ class TelegramBot:
             "🔍 /check <code>username</code> — Manual check\n"
             "🧪 /test <code>username</code> — Test account (no monitor)\n"
             "🏓 /ping — Check bot latency\n"
-            "📊 /proxy — DataImpulse traffic stats"
+            "📊 /proxy — Proxy traffic stats"
         )
         await update.message.reply_text(text, parse_mode="HTML")
 
@@ -707,7 +707,7 @@ class TelegramBot:
             cost = used_gb * rate_per_gb
 
             text = (
-                "📊 <b>DataImpulse Proxy Stats</b>\n"
+                "📊 <b>Proxy Stats</b>\n"
                 "━━━━━━━━━━━━━━━━━━━\n\n"
                 f"📦 <b>Total Traffic:</b> {fmt_bytes(total_bytes)}\n"
                 f"📤 <b>Used:</b> {fmt_bytes(used_bytes)} ({pct_used:.1f}%)\n"
