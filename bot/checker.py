@@ -245,17 +245,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             screenshot_path = os.path.join(screenshot_dir, filename)
 
             if status == "active":
-                header = await page.query_selector('xpath=/html/body/div[1]/div/div/div[2]/div/div/div[1]/div[1]/div/header')
-                if header:
-                    await header.screenshot(path=screenshot_path)
-                else:
-                    await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 412, "height": 800})
+                await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 50, "width": 412, "height": 425})
             else:
-                main = await page.query_selector("main")
-                if main:
-                    await main.screenshot(path=screenshot_path)
-                else:
-                    await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 412, "height": 800})
+                await page.screenshot(path=screenshot_path, full_page=False, clip={"x": 0, "y": 0, "width": 412, "height": 800})
 
             result["screenshot_path"] = screenshot_path
 
