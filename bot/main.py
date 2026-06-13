@@ -23,6 +23,14 @@ def main():
     setup_logging(config.log_level, config.logs_dir)
 
     db = Database(config.database_path)
+    db.seed_admins(config.admins)
+
+    db.cleanup_old_data(
+        days=7,
+        raw_dir=config.raw_responses_dir,
+        screenshots_dir=config.screenshots_dir,
+    )
+
     monitor = Monitor(config, db)
 
     telegram_bot = None

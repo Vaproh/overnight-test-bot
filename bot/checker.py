@@ -333,23 +333,61 @@ async def _dismiss_popups(page):
 async def _extract_profile_data_async(page) -> dict:
     data = {}
 
+    # Try extracting from page's visible text first (more accurate)
     try:
-        meta_desc = await page.query_selector('meta[name="description"]')
-        if meta_desc:
-            content = await meta_desc.get_attribute("content") or ""
-            import re
-            followers_match = re.search(r"([\d,.]+[KMB]?) Followers", content)
-            following_match = re.search(r"([\d,.]+[KMB]?) Following", content)
-            posts_match = re.search(r"([\d,.]+[KMB]?) Posts", content)
+        # Look for the stats section with follower/following/posts
+        stats_text = await page.evaluate("""() => {
+            // Try to find the header section with stats
+            const sections = document.querySelectorAll('section');
+            for (const section of sections) {
+                const text = section.innerText || '';
+                if (text.includes('follower') || text.includes('Following')) {
+                    return text;
+                }
+            }
+            // Fallback to main header area
+            const header = document.querySelector('header') || document.querySelector('main header');
+            if (header) {
+                return header.innerText || '';
+            }
+            return '';
+        }""")
 
+        if stats_text:
+            # Parse "X posts  Y followers  Z following" format
+            import re
+            posts_match = re.search(r'([\d,.]+[KMB]?)\s*posts?', stats_text, re.IGNORECASE)
+            followers_match = re.search(r'([\d,.]+[KMB]?)\s*followers?', stats_text, re.IGNORECASE)
+            following_match = re.search(r'([\d,.]+[KMB]?)\s*following', stats_text, re.IGNORECASE)
+
+            if posts_match:
+                data["posts"] = posts_match.group(1)
             if followers_match:
                 data["followers"] = followers_match.group(1)
             if following_match:
                 data["following"] = following_match.group(1)
-            if posts_match:
-                data["posts"] = posts_match.group(1)
     except Exception:
         pass
+
+    # Fallback to meta description if page extraction didn't work
+    if not data.get("followers"):
+        try:
+            meta_desc = await page.query_selector('meta[name="description"]')
+            if meta_desc:
+                content = await meta_desc.get_attribute("content") or ""
+                import re
+                followers_match = re.search(r"([\d,.]+[KMB]?) Followers", content)
+                following_match = re.search(r"([\d,.]+[KMB]?) Following", content)
+                posts_match = re.search(r"([\d,.]+[KMB]?) Posts", content)
+
+                if followers_match:
+                    data["followers"] = followers_match.group(1)
+                if following_match:
+                    data["following"] = following_match.group(1)
+                if posts_match:
+                    data["posts"] = posts_match.group(1)
+        except Exception:
+            pass
 
     try:
         bio_elem = await page.query_selector("section main header section div div span")
@@ -443,8 +481,6 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
         result["latency_ms"] = latency_ms
         result["error_message"] = str(e)[:500]
         logger.error(f"Playwright error for {username}: {e}")
-
-    return result
 
     return result
 

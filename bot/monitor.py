@@ -12,6 +12,8 @@ from .database import Database
 
 logger = logging.getLogger("monitor.loop")
 
+CLEANUP_INTERVAL = 86400
+
 
 class Monitor:
     def __init__(self, config: Config, db: Database, notify_fn: Optional[Callable] = None, notify_photo_fn: Optional[Callable] = None):
@@ -21,6 +23,7 @@ class Monitor:
         self.notify_photo_fn = notify_photo_fn
         self.running = False
         self.start_time = None
+        self._last_cleanup = time.time()
 
     def start(self):
         self.running = True
@@ -74,6 +77,8 @@ class Monitor:
             except Exception as e:
                 logger.error(f"Error in check cycle: {e}")
 
+            self._maybe_cleanup()
+
             if not self.running:
                 break
 
@@ -83,6 +88,21 @@ class Monitor:
             )
             logger.info(f"Sleeping {interval:.1f}s until next check cycle")
             self._interruptible_sleep(interval)
+
+    def _maybe_cleanup(self):
+        now = time.time()
+        if now - self._last_cleanup < CLEANUP_INTERVAL:
+            return
+        self._last_cleanup = now
+        try:
+            stats = self.db.cleanup_old_data(
+                days=7,
+                raw_dir=self.config.raw_responses_dir,
+                screenshots_dir=self.config.screenshots_dir,
+            )
+            logger.info(f"Cleanup: deleted {stats['checks']} checks, {stats['events']} events, {stats['files']} files")
+        except Exception as e:
+            logger.error(f"Cleanup failed: {e}")
 
     def _check_all_accounts(self):
         now = datetime.now(timezone.utc).isoformat()

@@ -1,6 +1,7 @@
 """SQLite database for the production monitoring bot."""
 
 import os
+import shutil
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -63,12 +64,131 @@ class Database:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS allowed_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE INDEX IF NOT EXISTS idx_checks_account_id ON checks(account_id);
             CREATE INDEX IF NOT EXISTS idx_checks_timestamp ON checks(timestamp);
             CREATE INDEX IF NOT EXISTS idx_events_account_id ON events(account_id);
             CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
         """)
         self.conn.commit()
+
+    def seed_admins(self, usernames: List[str]):
+        for u in usernames:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO admins (username) VALUES (?)", (u,)
+            )
+        self.conn.commit()
+
+    def is_admin(self, username: str) -> bool:
+        cur = self.conn.cursor()
+        cur.execute("SELECT 1 FROM admins WHERE username = ?", (username,))
+        return cur.fetchone() is not None
+
+    def is_allowed_user(self, username: str) -> bool:
+        cur = self.conn.cursor()
+        cur.execute("SELECT 1 FROM allowed_users WHERE username = ?", (username,))
+        return cur.fetchone() is not None
+
+    def add_admin(self, username: str) -> bool:
+        try:
+            self.conn.execute("INSERT INTO admins (username) VALUES (?)", (username,))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def remove_admin(self, username: str) -> bool:
+        cur = self.conn.cursor()
+        cur.execute("SELECT COUNT(*) as cnt FROM admins")
+        count = cur.fetchone()["cnt"]
+        if count <= 1:
+            return False
+        cur.execute("DELETE FROM admins WHERE username = ?", (username,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def get_all_admins(self) -> List[str]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT username FROM admins ORDER BY id")
+        return [row["username"] for row in cur.fetchall()]
+
+    def add_allowed_user(self, username: str) -> bool:
+        try:
+            self.conn.execute("INSERT INTO allowed_users (username) VALUES (?)", (username,))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def remove_allowed_user(self, username: str) -> bool:
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM allowed_users WHERE username = ?", (username,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def get_all_allowed_users(self) -> List[str]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT username FROM allowed_users ORDER BY id")
+        return [row["username"] for row in cur.fetchall()]
+
+    def cleanup_old_data(self, days: int = 7, raw_dir: str = "", screenshots_dir: str = "") -> dict:
+        cutoff = datetime.now(timezone.utc).isoformat()
+        try:
+            from datetime import timedelta
+            cutoff_dt = datetime.now(timezone.utc) - timedelta(days=days)
+            cutoff = cutoff_dt.isoformat()
+        except Exception:
+            pass
+
+        stats = {"checks": 0, "events": 0, "files": 0}
+
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM checks WHERE timestamp < ?", (cutoff,))
+        stats["checks"] = cur.rowcount
+        cur.execute("DELETE FROM events WHERE timestamp < ?", (cutoff,))
+        stats["events"] = cur.rowcount
+        self.conn.commit()
+
+        if raw_dir and os.path.exists(raw_dir):
+            stats["files"] += self._cleanup_dir(raw_dir, days)
+        if screenshots_dir and os.path.exists(screenshots_dir):
+            stats["files"] += self._cleanup_dir(screenshots_dir, days)
+
+        return stats
+
+    def _cleanup_dir(self, directory: str, days: int) -> int:
+        from datetime import timedelta
+        import time as _time
+        deleted = 0
+        cutoff = _time.time() - (days * 86400)
+        for root, dirs, files in os.walk(directory, topdown=False):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                try:
+                    if os.path.getmtime(fpath) < cutoff:
+                        os.remove(fpath)
+                        deleted += 1
+                except Exception:
+                    pass
+            for dname in dirs:
+                dpath = os.path.join(root, dname)
+                try:
+                    if not os.listdir(dpath):
+                        os.rmdir(dpath)
+                except Exception:
+                    pass
+        return deleted
 
     def get_or_create_account(self, username: str) -> int:
         cursor = self.conn.cursor()
