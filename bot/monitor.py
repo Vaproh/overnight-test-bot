@@ -30,12 +30,9 @@ class Monitor:
         self.start_time = datetime.now(timezone.utc)
 
         self._run_startup_verification()
-        self._cleanup_stale_accounts()
 
-        logger.info(f"Monitor started, checking {len(self.config.accounts)} accounts every {self.config.check_interval}s")
-
-        for username in self.config.accounts:
-            self.db.get_or_create_account(username)
+        accounts = self.db.get_all_accounts()
+        logger.info(f"Monitor started, checking {len(accounts)} accounts every {self.config.check_interval}s")
 
         self._run_loop()
 
@@ -66,23 +63,16 @@ class Monitor:
         else:
             logger.warning("Startup verification: SOME FAILURES - check logs")
 
-    def _cleanup_stale_accounts(self):
-        monitored = set(self.config.accounts)
-        for account in self.db.get_all_accounts():
-            username = account["username"]
-            if username not in monitored:
-                logger.info(f"Removing stale account @{username} from database")
-                self.db.remove_account(username)
-
     def _run_loop(self):
         while self.running:
-            if not self.config.accounts:
+            accounts = self.db.get_all_accounts()
+            if not accounts:
                 logger.debug("No accounts to monitor, waiting...")
                 self._interruptible_sleep(5)
                 continue
 
             try:
-                self._check_all_accounts()
+                self._check_all_accounts(accounts)
             except Exception as e:
                 logger.error(f"Error in check cycle: {e}")
 
@@ -113,14 +103,14 @@ class Monitor:
         except Exception as e:
             logger.error(f"Cleanup failed: {e}")
 
-    def _check_all_accounts(self):
+    def _check_all_accounts(self, accounts):
         now = datetime.now(timezone.utc).isoformat()
         logger.info(f"--- Check cycle started at {now} ---")
 
-        for username in self.config.accounts:
+        for account in accounts:
             if not self.running:
                 break
-            self._check_single_account(username)
+            self._check_single_account(account["username"])
 
         logger.info("--- Check cycle complete ---")
 

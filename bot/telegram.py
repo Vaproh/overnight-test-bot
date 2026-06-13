@@ -179,7 +179,7 @@ class TelegramBot:
             latency = (_time.time() - start) * 1000
             await query.edit_message_text(
                 f"🏓 <b>Pong!</b> {latency:.0f}ms\n"
-                f"📡 Monitoring: {len(self.config.accounts)} accounts\n"
+                f"📡 Monitoring: {len(self.db.get_all_accounts())} accounts\n"
                 f"⏱ Uptime: {self.monitor.get_uptime()}",
                 parse_mode="HTML",
             )
@@ -444,14 +444,14 @@ class TelegramBot:
             return
 
         username = context.args[0].lstrip("@")
-        if username in self.config.accounts:
+        existing = self.db.get_account_status(username)
+        if existing is not None:
             await update.message.reply_text(
                 f"⚠️ @{username} is already being monitored.",
                 parse_mode="HTML",
             )
             return
 
-        self.config.accounts.append(username)
         self.db.get_or_create_account(username)
         await update.message.reply_text(
             f"✅ <b>@{username}</b> added.\n🔍 Checking status...",
@@ -521,14 +521,14 @@ class TelegramBot:
             return
 
         username = context.args[0].lstrip("@")
-        if username not in self.config.accounts:
+        existing = self.db.get_account_status(username)
+        if existing is None:
             await update.message.reply_text(
                 f"❌ @{username} is not being monitored.",
                 parse_mode="HTML",
             )
             return
 
-        self.config.accounts.remove(username)
         self.db.remove_account(username)
         await update.message.reply_text(
             f"🗑 <b>@{username}</b> removed from monitoring.",
@@ -643,7 +643,7 @@ class TelegramBot:
             "━━━━━━━━━━━━━━━━━━━\n\n"
             f"⚡ <b>Bot Latency:</b> {latency:.0f}ms\n"
             f"🟢 <b>Status:</b> Online\n"
-            f"📡 <b>Monitoring:</b> {len(self.config.accounts)} accounts\n"
+            f"📡 <b>Monitoring:</b> {len(self.db.get_all_accounts())} accounts\n"
             f"⏱ <b>Uptime:</b> {self.monitor.get_uptime()}",
             parse_mode="HTML",
         )
