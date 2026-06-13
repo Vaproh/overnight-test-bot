@@ -40,6 +40,38 @@ def save_cookies(cookies_path: str, cookies: List[dict]):
         logger.error(f"Failed to save cookies: {e}")
 
 
+def init_instagram_cookies(config: Config):
+    import asyncio
+    from playwright.async_api import async_playwright
+
+    auth = config.instagram_auth
+    if not auth.enabled or not auth.username or not auth.password:
+        return
+
+    cookies = load_cookies(auth.cookies_path)
+    if cookies:
+        logger.info("Instagram cookies found, skipping login")
+        return
+
+    logger.info("No Instagram cookies found, logging in...")
+
+    async def _login():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=config.playwright.headless)
+            context = await browser.new_context(
+                user_agent=config.user_agent,
+                viewport={"width": 1080, "height": 1350},
+            )
+            page = await context.new_page()
+
+            try:
+                await instagram_login(page, config)
+            finally:
+                await browser.close()
+
+    asyncio.run(_login())
+
+
 async def instagram_login(page, config) -> bool:
     auth = config.instagram_auth
     if not auth.enabled or not auth.username or not auth.password:
@@ -280,7 +312,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             page = await context.new_page()
 
             if config.instagram_auth.enabled:
-                await instagram_login(page, config)
+                cookies = load_cookies(config.instagram_auth.cookies_path)
+                if cookies:
+                    await page.context.add_cookies(cookies)
 
             await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
             await page.wait_for_timeout(4000)
@@ -437,7 +471,9 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
             page = await context.new_page()
 
             if config.instagram_auth.enabled:
-                await instagram_login(page, config)
+                cookies = load_cookies(config.instagram_auth.cookies_path)
+                if cookies:
+                    await page.context.add_cookies(cookies)
 
             response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
             await page.wait_for_timeout(3000)
