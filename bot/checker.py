@@ -157,7 +157,8 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
 
 
 def capture_profile_screenshot(username: str, config: Config, status: str = "unknown") -> dict:
-    from playwright.sync_api import sync_playwright
+    import asyncio
+    from playwright.async_api import async_playwright
 
     result = {
         "screenshot_path": None,
@@ -166,19 +167,19 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
 
     url = f"https://www.instagram.com/{username}/"
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=config.playwright.headless)
-            context = browser.new_context(
+    async def _capture():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=config.playwright.headless)
+            context = await browser.new_context(
                 user_agent=config.user_agent,
                 viewport={"width": 1080, "height": 1350},
             )
-            page = context.new_page()
+            page = await context.new_page()
 
-            page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
-            page.wait_for_timeout(4000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
+            await page.wait_for_timeout(4000)
 
-            profile_data = _extract_profile_data(page)
+            profile_data = await _extract_profile_data_async(page)
             result["profile_data"] = profile_data
 
             date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -189,27 +190,40 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             filename = f"{username}_{status}_{ts}.png"
             screenshot_path = os.path.join(screenshot_dir, filename)
 
-            page.screenshot(path=screenshot_path, full_page=False)
+            await page.screenshot(path=screenshot_path, full_page=False)
             result["screenshot_path"] = screenshot_path
 
-            browser.close()
+            await browser.close()
 
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                loop.run_in_executor(pool, lambda: asyncio.run(_capture()))
+        else:
+            asyncio.run(_capture())
     except Exception as e:
         logger.error(f"Screenshot capture failed for {username}: {e}")
 
     return result
 
 
-def _extract_profile_data(page) -> dict:
+async def _extract_profile_data_async(page) -> dict:
     data = {}
 
     try:
-        meta_desc = page.query_selector('meta[name="description"]')
+        meta_desc = await page.query_selector('meta[name="description"]')
         if meta_desc:
-            content = meta_desc.get_attribute("content") or ""
-            followers_match = __import__("re").search(r"([\d,.]+[KMB]?) Followers", content)
-            following_match = __import__("re").search(r"([\d,.]+[KMB]?) Following", content)
-            posts_match = __import__("re").search(r"([\d,.]+[KMB]?) Posts", content)
+            content = await meta_desc.get_attribute("content") or ""
+            import re
+            followers_match = re.search(r"([\d,.]+[KMB]?) Followers", content)
+            following_match = re.search(r"([\d,.]+[KMB]?) Following", content)
+            posts_match = re.search(r"([\d,.]+[KMB]?) Posts", content)
 
             if followers_match:
                 data["followers"] = followers_match.group(1)
@@ -221,9 +235,10 @@ def _extract_profile_data(page) -> dict:
         pass
 
     try:
-        bio_elem = page.query_selector("section main header section div div span")
+        bio_elem = await page.query_selector("section main header section div div span")
         if bio_elem:
-            bio = bio_elem.inner_text().strip()
+            bio = await bio_elem.inner_text()
+            bio = bio.strip()
             if bio and len(bio) < 200:
                 data["bio"] = bio
     except Exception:
@@ -233,6 +248,9 @@ def _extract_profile_data(page) -> dict:
 
 
 def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
+    import asyncio
+    from playwright.async_api import async_playwright
+
     result = {
         "username": username,
         "transport": "playwright",
@@ -248,26 +266,20 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
         "retry_count": 0,
     }
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        result["error_message"] = "playwright not installed"
-        return result
-
     url = f"https://www.instagram.com/{username}/"
     start = time.time()
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=config.playwright.headless)
-            context = browser.new_context(
+    async def _check():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=config.playwright.headless)
+            context = await browser.new_context(
                 user_agent=config.user_agent,
                 viewport={"width": 1920, "height": 1080},
             )
-            page = context.new_page()
+            page = await context.new_page()
 
-            response = page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
-            page.wait_for_timeout(3000)
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
+            await page.wait_for_timeout(3000)
 
             latency_ms = (time.time() - start) * 1000
             result["latency_ms"] = latency_ms
@@ -275,30 +287,39 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
             if response:
                 result["status_code"] = response.status
 
-            page_content = page.content()
+            page_content = await page.content()
             result["response_size"] = len(page_content)
             result["classification"] = classify_playwright_response(page_content, result.get("status_code"))
 
-            if config.screenshots_dir:
-                os.makedirs(config.screenshots_dir, exist_ok=True)
-                ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-                screenshot_path = os.path.join(config.screenshots_dir, f"{username}_playwright_{ts}.png")
-                page.screenshot(path=screenshot_path)
-
             result["raw_response"] = {
                 "url": url,
-                "title": page.title(),
+                "title": await page.title(),
                 "content_length": len(page_content),
                 "content_preview": page_content[:2000],
             }
 
-            browser.close()
+            await browser.close()
+
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                loop.run_in_executor(pool, lambda: asyncio.run(_check()))
+        else:
+            asyncio.run(_check())
 
     except Exception as e:
         latency_ms = (time.time() - start) * 1000
         result["latency_ms"] = latency_ms
         result["error_message"] = str(e)[:500]
         logger.error(f"Playwright error for {username}: {e}")
+
+    return result
 
     return result
 
