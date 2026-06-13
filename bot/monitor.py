@@ -63,6 +63,11 @@ class Monitor:
 
     def _run_loop(self):
         while self.running:
+            if not self.config.accounts:
+                logger.debug("No accounts to monitor, waiting...")
+                self._interruptible_sleep(5)
+                continue
+
             try:
                 self._check_all_accounts()
             except Exception as e:
