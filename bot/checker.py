@@ -60,24 +60,30 @@ def classify_response(data: Dict[str, Any], status_code: Optional[int]) -> str:
 def classify_playwright_response(page_content: str, status_code: Optional[int]) -> str:
     if status_code == 404:
         return "MISSING"
-    content_lower = page_content.lower()
 
+    has_profile_data = (
+        '"edge_followed_by"' in page_content
+        or '"edge_follow"' in page_content
+        or '"is_private":' in page_content
+        or re.search(r'"follower_count"\s*:\s*\d+', page_content)
+        or re.search(r'"media_count"\s*:\s*\d+', page_content)
+    )
+
+    if has_profile_data:
+        return "ACTIVE"
+
+    has_login_prompt = (
+        "Sorry, this page isn't available." in page_content
+        or "The link you followed may be broken" in page_content
+    )
+    if has_login_prompt:
+        return "MISSING"
+
+    content_lower = page_content.lower()
     if "login" in content_lower and ("sign" in content_lower or "log in" in content_lower):
-        return "ACTIVE"
-    if '"edge_followed_by"' in page_content or '"edge_follow"' in page_content:
-        return "ACTIVE"
-    if '"is_private":' in page_content:
-        return "ACTIVE"
-    if '"full_name"' in page_content and '"username"' in page_content:
-        return "ACTIVE"
-    if "Sorry, this page isn't available." in page_content:
+        if '"full_name"' in page_content and '"username"' in page_content:
+            return "ACTIVE"
         return "MISSING"
-    if "The link you followed may be broken" in page_content:
-        return "MISSING"
-    if re.search(r'"follower_count"\s*:\s*\d+', page_content):
-        return "ACTIVE"
-    if re.search(r'"media_count"\s*:\s*\d+', page_content):
-        return "ACTIVE"
 
     return "UNKNOWN"
 

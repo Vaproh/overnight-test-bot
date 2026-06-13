@@ -6,8 +6,6 @@ import signal
 import sys
 import threading
 
-from telegram.ext import Application
-
 from .checker import check_with_curl_cffi
 from .config import Config
 from .database import Database
@@ -35,18 +33,14 @@ def main():
 
     def shutdown(signum, frame):
         monitor.stop()
-        if telegram_bot and telegram_bot.app:
-            telegram_bot.app.stop_running()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
     if telegram_bot and telegram_bot.app:
-        app = telegram_bot.app
-        app.run_polling(
-            should_stop=lambda: not monitor.running,
-            ready_callback=lambda: print("Bot is ready"),
-        )
+        monitor_thread = threading.Thread(target=monitor.start, daemon=True)
+        monitor_thread.start()
+        telegram_bot.app.run_polling()
     else:
         monitor.start()
 

@@ -41,6 +41,7 @@ class PlaywrightConfig:
 @dataclass
 class Config:
     telegram_token: str = ""
+    telegram_chat_id: str = ""
     check_interval: int = 300
     request_timeout: int = 30
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
@@ -68,6 +69,7 @@ class Config:
 
         return cls(
             telegram_token=data.get("telegram_token", ""),
+            telegram_chat_id=data.get("telegram_chat_id", ""),
             check_interval=data.get("check_interval", 300),
             request_timeout=data.get("request_timeout", 30),
             proxy=ProxyConfig(

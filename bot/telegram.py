@@ -132,18 +132,28 @@ class TelegramBot:
 
         try:
             import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
                 asyncio.ensure_future(self._send_notification(message))
-            else:
+            elif loop:
                 loop.run_until_complete(self._send_notification(message))
+            else:
+                asyncio.run(self._send_notification(message))
         except Exception as e:
             logger.error(f"Failed to queue notification: {e}")
 
     async def _send_notification(self, message: str):
         try:
+            chat_id = self.config.telegram_chat_id
+            if not chat_id:
+                logger.warning("No telegram_chat_id configured, skipping notification")
+                return
             await self.app.bot.send_message(
-                chat_id=self.config.telegram_chat_id,
+                chat_id=chat_id,
                 text=message,
             )
         except Exception as e:
