@@ -40,115 +40,22 @@ def save_cookies(cookies_path: str, cookies: List[dict]):
         logger.error(f"Failed to save cookies: {e}")
 
 
-def init_instagram_cookies(config: Config):
-    import asyncio
-    from playwright.async_api import async_playwright
-
-    auth = config.instagram_auth
-    if not auth.enabled or not auth.username or not auth.password:
+def load_cookies_to_context(context, config):
+    if not config.instagram_auth.enabled:
         return
-
-    cookies = load_cookies(auth.cookies_path)
+    cookies = load_cookies(config.instagram_auth.cookies_path)
     if cookies:
-        logger.info("Instagram cookies found, skipping login")
-        return
-
-    logger.info("No Instagram cookies found, logging in...")
-
-    async def _login():
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=config.playwright.headless)
-            context = await browser.new_context(
-                user_agent=config.user_agent,
-                viewport={"width": 1080, "height": 1350},
-            )
-            page = await context.new_page()
-
-            try:
-                await instagram_login(page, config)
-            finally:
-                await browser.close()
-
-    asyncio.run(_login())
-
-
-async def instagram_login(page, config) -> bool:
-    auth = config.instagram_auth
-    if not auth.enabled or not auth.username or not auth.password:
-        return False
-
-    cookies = load_cookies(auth.cookies_path)
-    if cookies:
+        import asyncio
         try:
-            await page.context.add_cookies(cookies)
-            await page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
-            await page.wait_for_timeout(3000)
-
-            current_url = page.url
-            if "/accounts/login" not in current_url:
-                logger.info("Logged in via saved cookies")
-                return True
-            logger.info("Cookies expired, logging in fresh")
-        except Exception as e:
-            logger.warning(f"Cookie login failed: {e}")
-
-    try:
-        await page.goto("https://www.instagram.com/accounts/login/", wait_until="networkidle")
-        await page.wait_for_timeout(2000)
-
-        username_input = await page.query_selector('input[name="username"]')
-        password_input = await page.query_selector('input[name="password"]')
-
-        if not username_input or not password_input:
-            await page.wait_for_timeout(2000)
-            username_input = await page.query_selector('input[name="username"]')
-            password_input = await page.query_selector('input[name="password"]')
-
-        if not username_input or not password_input:
-            logger.error("Login form not found")
-            return False
-
-        await username_input.click()
-        await username_input.fill("")
-        await username_input.type(auth.username, delay=50)
-        await page.wait_for_timeout(300)
-
-        await password_input.click()
-        await password_input.fill("")
-        await password_input.type(auth.password, delay=50)
-        await page.wait_for_timeout(300)
-
-        login_btn = await page.query_selector('button[type="submit"]')
-        if login_btn:
-            await login_btn.click()
-
-        await page.wait_for_timeout(5000)
-
-        not_now_btn = await page.query_selector('button:has-text("Not Now")')
-        if not_now_btn:
-            await not_now_btn.click()
-            await page.wait_for_timeout(2000)
-
-        await page.keyboard.press("Escape")
-        await page.wait_for_timeout(1000)
-
-        current_url = page.url
-        if "/accounts/login" not in current_url:
-            new_cookies = await page.context.cookies()
-            save_cookies(auth.cookies_path, new_cookies)
-            logger.info("Logged in successfully, cookies saved")
-            return True
-
-        page_content = await page.content()
-        if "error" in page_content.lower() or "incorrect" in page_content.lower():
-            logger.error("Login failed: wrong credentials")
-        else:
-            logger.error("Login failed: unknown reason")
-        return False
-
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        return False
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    loop.run_in_executor(pool, lambda: asyncio.run(context.add_cookies(cookies)))
+            else:
+                asyncio.run(context.add_cookies(cookies))
+        except Exception:
+            pass
 
 
 def build_headers(user_agent: str) -> Dict[str, str]:
@@ -308,8 +215,11 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             context = await browser.new_context(
                 user_agent=config.user_agent,
                 viewport={"width": 1080, "height": 1350},
+                color_scheme="dark",
             )
             page = await context.new_page()
+
+            await page.emulate_media(color_scheme="dark")
 
             if config.instagram_auth.enabled:
                 cookies = load_cookies(config.instagram_auth.cookies_path)
@@ -333,11 +243,15 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             filename = f"{username}_{status}_{ts}.png"
             screenshot_path = os.path.join(screenshot_dir, filename)
 
-            profile_section = await page.query_selector("section main")
-            if profile_section:
-                await profile_section.screenshot(path=screenshot_path)
+            header = await page.query_selector("header")
+            if header:
+                await header.screenshot(path=screenshot_path)
             else:
-                await page.screenshot(path=screenshot_path, full_page=False)
+                profile_section = await page.query_selector("section main")
+                if profile_section:
+                    await profile_section.screenshot(path=screenshot_path)
+                else:
+                    await page.screenshot(path=screenshot_path, full_page=False)
 
             result["screenshot_path"] = screenshot_path
 
@@ -467,8 +381,11 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
             context = await browser.new_context(
                 user_agent=config.user_agent,
                 viewport={"width": 1920, "height": 1080},
+                color_scheme="dark",
             )
             page = await context.new_page()
+
+            await page.emulate_media(color_scheme="dark")
 
             if config.instagram_auth.enabled:
                 cookies = load_cookies(config.instagram_auth.cookies_path)

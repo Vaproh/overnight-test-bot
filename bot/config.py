@@ -41,8 +41,6 @@ class PlaywrightConfig:
 @dataclass
 class InstagramAuth:
     enabled: bool = False
-    username: str = ""
-    password: str = ""
     cookies_path: str = "./data/cookies.json"
 
 
@@ -100,8 +98,6 @@ class Config:
             ),
             instagram_auth=InstagramAuth(
                 enabled=ig_data.get("enabled", False),
-                username=ig_data.get("username", ""),
-                password=ig_data.get("password", ""),
                 cookies_path=ig_data.get("cookies_path", "./data/cookies.json"),
             ),
             database_path=data.get("database_path", "./data/monitor.db"),
