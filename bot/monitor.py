@@ -1,6 +1,7 @@
 """Monitoring loop with state tracking and notifications."""
 
 import logging
+import random
 import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -76,8 +77,12 @@ class Monitor:
             if not self.running:
                 break
 
-            logger.info(f"Sleeping {self.config.check_interval}s until next check cycle")
-            self._interruptible_sleep(self.config.check_interval)
+            interval = random.uniform(
+                max(30, self.config.check_interval - 15),
+                self.config.check_interval + 15,
+            )
+            logger.info(f"Sleeping {interval:.1f}s until next check cycle")
+            self._interruptible_sleep(interval)
 
     def _check_all_accounts(self):
         now = datetime.now(timezone.utc).isoformat()
@@ -158,18 +163,18 @@ class Monitor:
                 profile_data = screenshot_data.get("profile_data", {})
 
                 account_info = self.db.get_account_by_id(account_id)
-                created_at = account_info.get("created_at") if account_info else None
-                monitoring_duration = self._calc_duration(created_at)
+                last_change = account_info.get("last_change") if account_info else None
+                duration = self._calc_duration(last_change)
 
-                caption = self._format_caption(
+                caption = self._format_notification(
                     username, old_status, new_status,
                     verification_result or "unverified",
-                    monitoring_duration, profile_data,
+                    duration, profile_data,
                 )
 
                 if screenshot_path and self.notify_photo_fn:
                     self.notify_photo_fn(screenshot_path, caption)
-                else:
+                elif self.notify_fn:
                     self.notify_fn(caption)
 
                 self.db.conn.execute(
@@ -180,7 +185,10 @@ class Monitor:
             except Exception as e:
                 logger.error(f"Failed to send notification for {username}: {e}")
 
-    def _format_notification(self, username: str, old_status: str, new_status: str, verification: str) -> str:
+    def _format_notification(
+        self, username: str, old_status: str, new_status: str,
+        verification: str, duration: str, profile_data: dict,
+    ) -> str:
         STATUS_EMOJI = {
             "ACTIVE": "🟢",
             "MISSING": "🔴",
@@ -189,31 +197,43 @@ class Monitor:
             "ERROR": "⚫",
         }
 
-        old_emoji = STATUS_EMOJI.get(old_status, "⚪")
-        new_emoji = STATUS_EMOJI.get(new_status, "⚪")
+        emoji = STATUS_EMOJI.get(new_status, "⚪")
+        divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
 
         if new_status == "MISSING":
-            alert = "🚨 *ACCOUNT DOWN*"
+            alert = "🔴 ACCOUNT MISSING"
         elif new_status == "ACTIVE":
-            alert = "✅ *ACCOUNT RESTORED*"
+            alert = "🟢 ACCOUNT RESTORED"
         else:
-            alert = "⚠️ *STATUS CHANGE*"
+            alert = "⚠️ STATUS CHANGE"
 
         lines = [
+            divider,
+            "",
             alert,
-            "━━━━━━━━━━━━━━━━━━━",
             "",
-            f"📸 *@{username}*",
+            f"<b>Username:</b>",
+            f"@{username}",
             "",
-            f"{old_emoji} {old_status}  →  {new_emoji} {new_status}",
+            f"<b>Status:</b>",
+            f"{old_status} → {new_status}",
         ]
 
-        if verification:
-            lines.append(f"🔍 Verified: `{verification}`")
+        if new_status == "ACTIVE" and profile_data:
+            if profile_data.get("followers"):
+                lines.append(f"<b>Followers:</b> {profile_data['followers']}")
+            if profile_data.get("following"):
+                lines.append(f"<b>Following:</b> {profile_data['following']}")
+            if profile_data.get("posts"):
+                lines.append(f"<b>Posts:</b> {profile_data['posts']}")
 
         lines.extend([
             "",
-            f"🕐 {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}",
+            f"<b>⏱ Time Monitored:</b> {duration}",
+            "",
+            f"<b>✅ Verified</b>",
+            "",
+            divider,
         ])
 
         return "\n".join(lines)
@@ -231,58 +251,6 @@ class Monitor:
             return f"{minutes}m"
         except Exception:
             return "unknown"
-
-    def _format_caption(
-        self, username: str, old_status: str, new_status: str,
-        verification: str, duration: str, profile_data: dict,
-    ) -> str:
-        STATUS_EMOJI = {
-            "ACTIVE": "🟢",
-            "MISSING": "🔴",
-            "SUSPECT": "🟡",
-            "UNKNOWN": "⚪",
-            "ERROR": "⚫",
-        }
-
-        old_emoji = STATUS_EMOJI.get(old_status, "⚪")
-        new_emoji = STATUS_EMOJI.get(new_status, "⚪")
-
-        if new_status == "MISSING":
-            alert = "🚨 Account Missing"
-        elif new_status == "ACTIVE":
-            alert = "🟢 Account Restored"
-        else:
-            alert = "⚠️ Status Change"
-
-        lines = [
-            f"*{alert}*",
-            "",
-            f"*Username:*",
-            f"@{username}",
-            "",
-            f"*Status:*",
-            f"{old_emoji} {old_status} → {new_emoji} {new_status}",
-        ]
-
-        if new_status == "ACTIVE" and profile_data:
-            if profile_data.get("followers"):
-                lines.extend(["", f"*Followers:* {profile_data['followers']}"])
-            if profile_data.get("following"):
-                lines.append(f"*Following:* {profile_data['following']}")
-            if profile_data.get("posts"):
-                lines.append(f"*Posts:* {profile_data['posts']}")
-
-        lines.extend([
-            "",
-            f"*Detection Time:*",
-            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-            "",
-            f"*Monitoring Duration:* {duration}",
-            "",
-            f"*Verification:* ✅ Confirmed",
-        ])
-
-        return "\n".join(lines)
 
     def _interruptible_sleep(self, seconds: float):
         end = time.time() + seconds

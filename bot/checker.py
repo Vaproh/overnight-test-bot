@@ -253,7 +253,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                 img = Image.open(tmp_path)
                 w, h = img.size
                 scale = h / 915
-                cropped = img.crop((0, int(50 * scale), w, int(475 * scale)))
+                cropped = img.crop((0, int(30 * scale), w, int(300 * scale)))
                 cropped.save(screenshot_path)
                 os.remove(tmp_path)
             else:
@@ -262,7 +262,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                 from PIL import Image
                 img = Image.open(tmp_path)
                 w, h = img.size
-                cropped = img.crop((0, 0, w, int(800 * (h / 915))))
+                cropped = img.crop((0, 0, w, int(600 * (h / 915))))
                 cropped.save(screenshot_path)
                 os.remove(tmp_path)
 
