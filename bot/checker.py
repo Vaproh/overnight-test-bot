@@ -47,37 +47,58 @@ async def instagram_login(page, config) -> bool:
 
     cookies = load_cookies(auth.cookies_path)
     if cookies:
-        await page.context.add_cookies(cookies)
-        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
-        await page.wait_for_timeout(3000)
+        try:
+            await page.context.add_cookies(cookies)
+            await page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
+            await page.wait_for_timeout(3000)
 
-        current_url = page.url
-        if "/accounts/login" not in current_url:
-            logger.info("Logged in via saved cookies")
-            return True
-        logger.info("Cookies expired, logging in fresh")
+            current_url = page.url
+            if "/accounts/login" not in current_url:
+                logger.info("Logged in via saved cookies")
+                return True
+            logger.info("Cookies expired, logging in fresh")
+        except Exception as e:
+            logger.warning(f"Cookie login failed: {e}")
 
     try:
-        await page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded")
+        await page.goto("https://www.instagram.com/accounts/login/", wait_until="networkidle")
         await page.wait_for_timeout(2000)
 
         username_input = await page.query_selector('input[name="username"]')
         password_input = await page.query_selector('input[name="password"]')
 
         if not username_input or not password_input:
+            await page.wait_for_timeout(2000)
+            username_input = await page.query_selector('input[name="username"]')
+            password_input = await page.query_selector('input[name="password"]')
+
+        if not username_input or not password_input:
             logger.error("Login form not found")
             return False
 
-        await username_input.fill(auth.username)
-        await page.wait_for_timeout(500)
-        await password_input.fill(auth.password)
-        await page.wait_for_timeout(500)
+        await username_input.click()
+        await username_input.fill("")
+        await username_input.type(auth.username, delay=50)
+        await page.wait_for_timeout(300)
+
+        await password_input.click()
+        await password_input.fill("")
+        await password_input.type(auth.password, delay=50)
+        await page.wait_for_timeout(300)
 
         login_btn = await page.query_selector('button[type="submit"]')
         if login_btn:
             await login_btn.click()
 
         await page.wait_for_timeout(5000)
+
+        not_now_btn = await page.query_selector('button:has-text("Not Now")')
+        if not_now_btn:
+            await not_now_btn.click()
+            await page.wait_for_timeout(2000)
+
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(1000)
 
         current_url = page.url
         if "/accounts/login" not in current_url:
@@ -86,7 +107,11 @@ async def instagram_login(page, config) -> bool:
             logger.info("Logged in successfully, cookies saved")
             return True
 
-        logger.error("Login failed")
+        page_content = await page.content()
+        if "error" in page_content.lower() or "incorrect" in page_content.lower():
+            logger.error("Login failed: wrong credentials")
+        else:
+            logger.error("Login failed: unknown reason")
         return False
 
     except Exception as e:
@@ -303,31 +328,39 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
 
 
 async def _dismiss_popups(page):
-    try:
-        await page.keyboard.press("Escape")
-        await page.wait_for_timeout(500)
-    except Exception:
-        pass
+    for _ in range(3):
+        try:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(300)
+        except Exception:
+            pass
 
-    try:
-        close_selectors = [
-            'button[aria-label="Close"]',
-            'button:has-text("Not Now")',
-            'button:has-text("Cancel")',
-            'div[role="dialog"] button svg[aria-label="Close"]',
-            'div[role="dialog"] button:has-text("Not Now")',
-        ]
-        for selector in close_selectors:
-            try:
-                btn = await page.query_selector(selector)
-                if btn:
+    close_selectors = [
+        'button:has-text("Not Now")',
+        'button:has-text("Cancel")',
+        'button:has-text("OK")',
+        'button:has-text("Got it")',
+        'button:has-text("Allow")',
+        'button:has-text("Decline")',
+        'button:has-text("Turn Off")',
+        'button:has-text("Cancel")',
+        'div[role="dialog"] button svg[aria-label="Close"]',
+        'div[role="dialog"] button:has-text("Not Now")',
+        'div[role="dialog"] button:has-text("Cancel")',
+        '[data-testid="cookie-banner"] button',
+        'button:has-text("Accept All")',
+        'button:has-text("Allow Essential")',
+    ]
+
+    for selector in close_selectors:
+        try:
+            btns = await page.query_selector_all(selector)
+            for btn in btns:
+                if await btn.is_visible():
                     await btn.click()
                     await page.wait_for_timeout(500)
-                    break
-            except Exception:
-                continue
-    except Exception:
-        pass
+        except Exception:
+            continue
 
     try:
         dialog = await page.query_selector('div[role="dialog"]')
