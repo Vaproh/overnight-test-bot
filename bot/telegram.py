@@ -40,6 +40,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("add", self.cmd_add))
         self.app.add_handler(CommandHandler("remove", self.cmd_remove))
         self.app.add_handler(CommandHandler("check", self.cmd_check))
+        self.app.add_handler(CommandHandler("test", self.cmd_test))
 
         return self.app
 
@@ -52,6 +53,7 @@ class TelegramBot:
             BotCommand("add", "Add account — /add username"),
             BotCommand("remove", "Remove account — /remove username"),
             BotCommand("check", "Manual check — /check username"),
+            BotCommand("test", "Test account (no monitor) — /test username"),
         ]
         await application.bot.set_my_commands(commands)
 
@@ -77,6 +79,7 @@ class TelegramBot:
             "/add `username` — Add an account\n"
             "/remove `username` — Remove an account\n"
             "/check `username` — Manual check\n"
+            "/test `username` — Test account (no monitor)\n"
         )
         await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -205,6 +208,61 @@ class TelegramBot:
         except Exception as e:
             await update.message.reply_text(
                 f"❌ Error checking @{username}:\n`{e}`",
+                parse_mode="Markdown",
+            )
+
+    async def cmd_test(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not context.args:
+            await update.message.reply_text(
+                "📝 *Usage:* /test `username`",
+                parse_mode="Markdown",
+            )
+            return
+
+        username = context.args[0].lstrip("@")
+        await update.message.reply_text(f"🧪 Testing @{username}...")
+
+        try:
+            from .checker import check_account, capture_profile_screenshot
+
+            result = check_account(username, self.config)
+            emoji = STATUS_EMOJI.get(result["classification"], "⚪")
+
+            profile_data = {}
+            screenshot_path = None
+            if result["classification"] == "ACTIVE":
+                screenshot_data = capture_profile_screenshot(username, self.config, "test")
+                screenshot_path = screenshot_data.get("screenshot_path")
+                profile_data = screenshot_data.get("profile_data", {})
+
+            caption = (
+                f"🧪 *Test Result*\n"
+                "━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📸 *@{username}*\n\n"
+                f"{emoji} *Status:* {result['classification']}\n"
+                f"🏎 *Latency:* {result.get('latency_ms', 0):.0f}ms\n"
+                f"🔢 *HTTP:* {result.get('status_code', 'N/A')}"
+            )
+
+            if profile_data:
+                if profile_data.get("followers"):
+                    caption += f"\n👥 *Followers:* {profile_data['followers']}"
+                if profile_data.get("following"):
+                    caption += f"\n➡️ *Following:* {profile_data['following']}"
+                if profile_data.get("posts"):
+                    caption += f"\n📝 *Posts:* {profile_data['posts']}"
+
+            if screenshot_path:
+                await update.message.reply_photo(
+                    photo=open(screenshot_path, "rb"),
+                    caption=caption,
+                    parse_mode="Markdown",
+                )
+            else:
+                await update.message.reply_text(caption, parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ Error testing @{username}:\n`{e}`",
                 parse_mode="Markdown",
             )
 
