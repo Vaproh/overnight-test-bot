@@ -284,6 +284,8 @@ async def _dismiss_popups(page):
             pass
 
     close_selectors = [
+        'svg[aria-label="Close"]',
+        'div[role="button"] svg[aria-label="Close"]',
         'button:has-text("Not Now")',
         'button:has-text("Cancel")',
         'button:has-text("OK")',
@@ -291,13 +293,9 @@ async def _dismiss_popups(page):
         'button:has-text("Allow")',
         'button:has-text("Decline")',
         'button:has-text("Turn Off")',
-        'button:has-text("Cancel")',
-        'div[role="dialog"] button svg[aria-label="Close"]',
-        'div[role="dialog"] button:has-text("Not Now")',
-        'div[role="dialog"] button:has-text("Cancel")',
-        '[data-testid="cookie-banner"] button',
         'button:has-text("Accept All")',
         'button:has-text("Allow Essential")',
+        '[data-testid="cookie-banner"] button',
     ]
 
     for selector in close_selectors:
