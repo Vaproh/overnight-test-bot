@@ -1,6 +1,7 @@
 config.yaml
 output/
 output_dryrun/
+data/
 *.db
 __pycache__/
 .venv/

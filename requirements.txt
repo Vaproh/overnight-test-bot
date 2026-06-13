@@ -1,4 +1,4 @@
 pyyaml
-playwright
-pycurl
+python-telegram-bot
 curl_cffi
+playwright

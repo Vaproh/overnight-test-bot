@@ -1,0 +1,297 @@
+"""Checker layer: curl_cffi primary, Playwright verification."""
+
+import hashlib
+import json
+import logging
+import os
+import re
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from .config import Config
+
+logger = logging.getLogger("monitor.checker")
+
+API_URL = "https://i.instagram.com/api/v1/users/web_profile_info/?username={}"
+
+
+def build_headers(user_agent: str) -> Dict[str, str]:
+    return {
+        "User-Agent": user_agent,
+        "x-ig-app-id": "936619743392459",
+        "Accept": "*/*",
+        "Accept-Language": "en-US",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+    }
+
+
+def get_response_hash(raw_response: Any) -> str:
+    try:
+        canonical = json.dumps(raw_response, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def classify_response(data: Dict[str, Any], status_code: Optional[int]) -> str:
+    if status_code == 404:
+        return "MISSING"
+    if status_code == 429:
+        return "RATE_LIMITED"
+    if status_code and status_code >= 500:
+        return "ERROR"
+
+    body_str = json.dumps(data) if isinstance(data, dict) else str(data)
+    if "Please wait a few minutes before you try again" in body_str:
+        return "RATE_LIMITED"
+
+    user_data = data.get("data", {}).get("user")
+    if user_data is None:
+        return "MISSING"
+    if isinstance(user_data, dict):
+        if user_data.get("is_private") is not None or user_data.get("username") is not None:
+            return "ACTIVE"
+        return "MISSING"
+    return "MISSING"
+
+
+def classify_playwright_response(page_content: str, status_code: Optional[int]) -> str:
+    if status_code == 404:
+        return "MISSING"
+    content_lower = page_content.lower()
+
+    if "login" in content_lower and ("sign" in content_lower or "log in" in content_lower):
+        return "ACTIVE"
+    if '"edge_followed_by"' in page_content or '"edge_follow"' in page_content:
+        return "ACTIVE"
+    if '"is_private":' in page_content:
+        return "ACTIVE"
+    if '"full_name"' in page_content and '"username"' in page_content:
+        return "ACTIVE"
+    if "Sorry, this page isn't available." in page_content:
+        return "MISSING"
+    if "The link you followed may be broken" in page_content:
+        return "MISSING"
+    if re.search(r'"follower_count"\s*:\s*\d+', page_content):
+        return "ACTIVE"
+    if re.search(r'"media_count"\s*:\s*\d+', page_content):
+        return "ACTIVE"
+
+    return "UNKNOWN"
+
+
+def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
+    from curl_cffi import requests as cffi_requests
+
+    url = API_URL.format(username)
+    headers = build_headers(config.user_agent)
+    proxy_url = config.proxy.get_url()
+
+    result = {
+        "username": username,
+        "transport": "curl_cffi",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status_code": None,
+        "latency_ms": 0,
+        "response_size": 0,
+        "response_hash": "",
+        "raw_response": None,
+        "raw_response_path": "",
+        "classification": "ERROR",
+        "error_message": None,
+        "retry_count": 0,
+    }
+
+    start = time.time()
+    try:
+        resp = cffi_requests.get(
+            url,
+            headers=headers,
+            timeout=config.request_timeout,
+            proxies={"https": proxy_url, "http": proxy_url} if proxy_url else None,
+            impersonate="chrome",
+        )
+        latency_ms = (time.time() - start) * 1000
+        body = resp.text
+        status_code = resp.status_code
+
+        try:
+            raw_response = json.loads(body)
+        except json.JSONDecodeError:
+            raw_response = {"raw_text": body[:10000]}
+
+        response_hash = get_response_hash(raw_response)
+        classification = classify_response(raw_response, status_code)
+
+        result.update({
+            "status_code": status_code,
+            "latency_ms": latency_ms,
+            "response_size": len(body),
+            "response_hash": response_hash,
+            "raw_response": raw_response,
+            "classification": classification,
+        })
+
+        if config.raw_responses_dir:
+            result["raw_response_path"] = _save_raw_response(
+                config.raw_responses_dir, username, raw_response, "curl_cffi"
+            )
+
+    except Exception as e:
+        latency_ms = (time.time() - start) * 1000
+        result.update({
+            "latency_ms": latency_ms,
+            "error_message": str(e)[:500],
+        })
+        logger.error(f"curl_cffi error for {username}: {e}")
+
+    return result
+
+
+def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
+    result = {
+        "username": username,
+        "transport": "playwright",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status_code": None,
+        "latency_ms": 0,
+        "response_size": 0,
+        "response_hash": "",
+        "raw_response": None,
+        "raw_response_path": "",
+        "classification": "ERROR",
+        "error_message": None,
+        "retry_count": 0,
+    }
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        result["error_message"] = "playwright not installed"
+        return result
+
+    url = f"https://www.instagram.com/{username}/"
+    start = time.time()
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=config.playwright.headless)
+            context = browser.new_context(
+                user_agent=config.user_agent,
+                viewport={"width": 1920, "height": 1080},
+            )
+            page = context.new_page()
+
+            response = page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
+            page.wait_for_timeout(3000)
+
+            latency_ms = (time.time() - start) * 1000
+            result["latency_ms"] = latency_ms
+
+            if response:
+                result["status_code"] = response.status
+
+            page_content = page.content()
+            result["response_size"] = len(page_content)
+            result["classification"] = classify_playwright_response(page_content, result.get("status_code"))
+
+            if config.screenshots_dir:
+                os.makedirs(config.screenshots_dir, exist_ok=True)
+                ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                screenshot_path = os.path.join(config.screenshots_dir, f"{username}_playwright_{ts}.png")
+                page.screenshot(path=screenshot_path)
+
+            result["raw_response"] = {
+                "url": url,
+                "title": page.title(),
+                "content_length": len(page_content),
+                "content_preview": page_content[:2000],
+            }
+
+            browser.close()
+
+    except Exception as e:
+        latency_ms = (time.time() - start) * 1000
+        result["latency_ms"] = latency_ms
+        result["error_message"] = str(e)[:500]
+        logger.error(f"Playwright error for {username}: {e}")
+
+    return result
+
+
+def check_account(username: str, config: Config) -> Dict[str, Any]:
+    max_retries = config.retry.attempts
+    backoff_list = config.retry.backoff_seconds
+
+    last_result = None
+    for attempt in range(max_retries):
+        result = check_with_curl_cffi(username, config)
+        result["retry_count"] = attempt
+
+        classification = result["classification"]
+
+        if classification == "RATE_LIMITED":
+            backoff = backoff_list[min(attempt, len(backoff_list) - 1)]
+            logger.warning(f"Rate limited for {username}, attempt {attempt + 1}/{max_retries}, retry in {backoff}s")
+            time.sleep(backoff)
+            last_result = result
+            continue
+
+        if classification == "ERROR" and result.get("error_message"):
+            err = result["error_message"].lower()
+            if any(kw in err for kw in ["timeout", "connection", "proxy", "network"]):
+                backoff = backoff_list[min(attempt, len(backoff_list) - 1)]
+                logger.warning(f"Retryable error for {username}: {result['error_message']}, retry in {backoff}s")
+                time.sleep(backoff)
+                last_result = result
+                continue
+
+        return result
+
+    return last_result or {
+        "username": username,
+        "classification": "ERROR",
+        "error_message": "All retries exhausted",
+    }
+
+
+def verify_with_playwright(username: str, curl_result: Dict[str, Any], config: Config) -> Dict[str, Any]:
+    if not config.playwright.enabled:
+        return curl_result
+
+    curl_class = curl_result.get("classification")
+    if curl_class != "MISSING":
+        return curl_result
+
+    logger.info(f"Verifying {username} with Playwright (curl said MISSING)")
+    pw_result = check_with_playwright(username, config)
+    pw_class = pw_result.get("classification")
+
+    curl_result["verification_status"] = pw_class
+
+    if pw_class == "MISSING":
+        curl_result["classification"] = "MISSING"
+        logger.info(f"Playwright confirms {username} is MISSING")
+    elif pw_class == "ACTIVE":
+        curl_result["classification"] = "SUSPECT"
+        logger.warning(f"Disagreement: curl=MISSING, playwright=ACTIVE for {username} -> SUSPECT")
+    else:
+        logger.warning(f"Playwright returned {pw_class} for {username}, keeping curl result")
+
+    return curl_result
+
+
+def _save_raw_response(raw_dir: str, username: str, raw_response: Any, transport: str) -> str:
+    try:
+        os.makedirs(raw_dir, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"{username}_{transport}_{ts}.json"
+        filepath = os.path.join(raw_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(raw_response, f, ensure_ascii=False, indent=2, default=str)
+        return filepath
+    except Exception as e:
+        logger.error(f"Failed to save raw response: {e}")
+        return ""

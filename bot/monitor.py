@@ -1,0 +1,197 @@
+"""Monitoring loop with state tracking and notifications."""
+
+import logging
+import time
+from datetime import datetime, timezone
+from typing import Callable, Optional
+
+from .checker import check_account, verify_with_playwright
+from .config import Config
+from .database import Database
+
+logger = logging.getLogger("monitor.loop")
+
+
+class Monitor:
+    def __init__(self, config: Config, db: Database, notify_fn: Optional[Callable] = None):
+        self.config = config
+        self.db = db
+        self.notify_fn = notify_fn
+        self.running = False
+        self.start_time = None
+
+    def start(self):
+        self.running = True
+        self.start_time = datetime.now(timezone.utc)
+        logger.info(f"Monitor started, checking {len(self.config.accounts)} accounts every {self.config.check_interval}s")
+
+        for username in self.config.accounts:
+            self.db.get_or_create_account(username)
+
+        self._run_loop()
+
+    def stop(self):
+        self.running = False
+        logger.info("Monitor stopping...")
+
+    def _run_loop(self):
+        while self.running:
+            try:
+                self._check_all_accounts()
+            except Exception as e:
+                logger.error(f"Error in check cycle: {e}")
+
+            if not self.running:
+                break
+
+            logger.info(f"Sleeping {self.config.check_interval}s until next check cycle")
+            self._interruptible_sleep(self.config.check_interval)
+
+    def _check_all_accounts(self):
+        now = datetime.now(timezone.utc).isoformat()
+        logger.info(f"--- Check cycle started at {now} ---")
+
+        for username in self.config.accounts:
+            if not self.running:
+                break
+            self._check_single_account(username)
+
+        logger.info("--- Check cycle complete ---")
+
+    def _check_single_account(self, username: str):
+        logger.info(f"Checking {username}")
+
+        result = check_account(username, self.config)
+
+        if result["classification"] == "MISSING":
+            result = verify_with_playwright(username, result, self.config)
+
+        account_id = self.db.get_or_create_account(username)
+        old_status = self.db.get_account_status(username)
+        new_status = result["classification"]
+
+        self.db.update_account_status(account_id, new_status)
+
+        check_data = {
+            "account_id": account_id,
+            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "status": new_status,
+            "status_code": result.get("status_code"),
+            "latency_ms": result.get("latency_ms", 0),
+            "response_size": result.get("response_size", 0),
+            "response_hash": result.get("response_hash", ""),
+            "raw_response_path": result.get("raw_response_path", ""),
+            "verification_status": result.get("verification_status"),
+            "error_message": result.get("error_message"),
+            "retry_count": result.get("retry_count", 0),
+        }
+        self.db.save_check(check_data)
+
+        is_transition = old_status is not None and old_status != new_status
+        if is_transition:
+            logger.info(f"TRANSITION: {username} {old_status} -> {new_status}")
+            self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result)
+
+        logger.info(
+            f"  {username}: {new_status} "
+            f"(latency={result.get('latency_ms', 0):.0f}ms, "
+            f"status_code={result.get('status_code', 'N/A')})"
+        )
+
+    def _handle_transition(self, account_id: int, username: str, old_status: str, new_status: str, result: dict):
+        should_notify = False
+        verification_result = None
+
+        if old_status == "ACTIVE" and new_status == "MISSING":
+            should_notify = True
+            verification_result = result.get("verification_status", "unverified")
+        elif old_status == "MISSING" and new_status == "ACTIVE":
+            should_notify = True
+            verification_result = "restored"
+
+        event_data = {
+            "account_id": account_id,
+            "old_status": old_status,
+            "new_status": new_status,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "verification_result": verification_result,
+            "notification_sent": 0,
+        }
+        event_id = self.db.save_event(event_data)
+
+        if should_notify and self.notify_fn:
+            try:
+                message = self._format_notification(username, old_status, new_status, verification_result or "unverified")
+                self.notify_fn(message)
+                self.db.conn.execute(
+                    "UPDATE events SET notification_sent = 1 WHERE id = ?", (event_id,)
+                )
+                self.db.conn.commit()
+                logger.info(f"Notification sent for {username}")
+            except Exception as e:
+                logger.error(f"Failed to send notification for {username}: {e}")
+
+    def _format_notification(self, username: str, old_status: str, new_status: str, verification: str) -> str:
+        arrow = "↓"
+        lines = [
+            f"Account Status Change",
+            f"",
+            f"@{username}",
+            f"{old_status} {arrow} {new_status}",
+        ]
+        if verification:
+            lines.append(f"Verification: {verification}")
+        lines.append(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        return "\n".join(lines)
+
+    def _interruptible_sleep(self, seconds: float):
+        end = time.time() + seconds
+        while time.time() < end and self.running:
+            time.sleep(min(1.0, max(0.1, end - time.time())))
+
+    def check_single(self, username: str) -> dict:
+        result = check_account(username, self.config)
+        if result["classification"] == "MISSING":
+            result = verify_with_playwright(username, result, self.config)
+
+        account_id = self.db.get_or_create_account(username)
+        old_status = self.db.get_account_status(username)
+        new_status = result["classification"]
+
+        self.db.update_account_status(account_id, new_status)
+
+        check_data = {
+            "account_id": account_id,
+            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "status": new_status,
+            "status_code": result.get("status_code"),
+            "latency_ms": result.get("latency_ms", 0),
+            "response_size": result.get("response_size", 0),
+            "response_hash": result.get("response_hash", ""),
+            "raw_response_path": result.get("raw_response_path", ""),
+            "verification_status": result.get("verification_status"),
+            "error_message": result.get("error_message"),
+            "retry_count": result.get("retry_count", 0),
+        }
+        self.db.save_check(check_data)
+
+        is_transition = old_status is not None and old_status != new_status
+        if is_transition:
+            self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result)
+
+        return {
+            "username": username,
+            "status": new_status,
+            "old_status": old_status,
+            "transition": is_transition,
+            "latency_ms": result.get("latency_ms", 0),
+            "status_code": result.get("status_code"),
+        }
+
+    def get_uptime(self) -> str:
+        if not self.start_time:
+            return "not started"
+        delta = datetime.now(timezone.utc) - self.start_time
+        hours, remainder = divmod(int(delta.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours}h {minutes}m {seconds}s"
