@@ -249,7 +249,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                 await page.screenshot(path=tmp_path, full_page=False)
                 from PIL import Image
                 img = Image.open(tmp_path)
-                cropped = img.crop((0, 50, 412, 475))
+                w, h = img.size
+                scale = h / 915
+                cropped = img.crop((0, int(50 * scale), w, int(475 * scale)))
                 cropped.save(screenshot_path)
                 os.remove(tmp_path)
             else:
@@ -257,7 +259,8 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                 await page.screenshot(path=tmp_path, full_page=False)
                 from PIL import Image
                 img = Image.open(tmp_path)
-                cropped = img.crop((0, 0, 412, 800))
+                w, h = img.size
+                cropped = img.crop((0, 0, w, int(800 * (h / 915))))
                 cropped.save(screenshot_path)
                 os.remove(tmp_path)
 
