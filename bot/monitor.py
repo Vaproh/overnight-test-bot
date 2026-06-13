@@ -30,6 +30,7 @@ class Monitor:
         self.start_time = datetime.now(timezone.utc)
 
         self._run_startup_verification()
+        self._cleanup_stale_accounts()
 
         logger.info(f"Monitor started, checking {len(self.config.accounts)} accounts every {self.config.check_interval}s")
 
@@ -64,6 +65,14 @@ class Monitor:
             logger.info("Startup verification: ALL PASS")
         else:
             logger.warning("Startup verification: SOME FAILURES - check logs")
+
+    def _cleanup_stale_accounts(self):
+        monitored = set(self.config.accounts)
+        for account in self.db.get_all_accounts():
+            username = account["username"]
+            if username not in monitored:
+                logger.info(f"Removing stale account @{username} from database")
+                self.db.remove_account(username)
 
     def _run_loop(self):
         while self.running:
