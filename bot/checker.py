@@ -231,7 +231,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             await page.wait_for_timeout(4000)
 
             await _dismiss_popups(page)
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(1000)
+            await _dismiss_popups(page)
+            await page.wait_for_timeout(1000)
 
             profile_data = await _extract_profile_data_async(page)
             result["profile_data"] = profile_data
