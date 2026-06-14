@@ -131,6 +131,9 @@ class Monitor:
         old_status = self.db.get_account_status(username)
         new_status = result["classification"]
 
+        account_info = self.db.get_account_by_id(account_id)
+        prev_last_change = account_info.get("last_change") if account_info else None
+
         self.db.update_account_status(account_id, new_status)
 
         check_data = {
@@ -151,7 +154,7 @@ class Monitor:
         is_transition = old_status is not None and old_status != new_status
         if is_transition:
             logger.info(f"TRANSITION: {username} {old_status} -> {new_status}")
-            self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result)
+            self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result, prev_last_change)
 
         logger.info(
             f"  {username}: {new_status} "
@@ -159,14 +162,26 @@ class Monitor:
             f"status_code={result.get('status_code', 'N/A')})"
         )
 
-    def _handle_transition(self, account_id: int, username: str, old_status: str, new_status: str, result: dict):
+        return {
+            "username": username,
+            "status": new_status,
+            "old_status": old_status,
+            "transition": is_transition,
+            "latency_ms": result.get("latency_ms", 0),
+            "status_code": result.get("status_code"),
+        }
+
+    def _handle_transition(self, account_id: int, username: str, old_status: str, new_status: str, result: dict, prev_last_change: Optional[str] = None):
+        WORKING = {"ACTIVE", "SUSPECT"}
+        NOT_WORKING = {"MISSING", "ERROR", "RATE_LIMITED"}
+
         should_notify = False
         verification_result = None
 
-        if old_status == "ACTIVE" and new_status == "MISSING":
+        if old_status in WORKING and new_status in NOT_WORKING:
             should_notify = True
             verification_result = result.get("verification_status", "unverified")
-        elif old_status == "MISSING" and new_status == "ACTIVE":
+        elif old_status in NOT_WORKING and new_status in WORKING:
             should_notify = True
             verification_result = "restored"
 
@@ -192,9 +207,7 @@ class Monitor:
                     profile_data = screenshot_data.get("profile_data", {})
                     screenshot_error = screenshot_data.get("error")
 
-                account_info = self.db.get_account_by_id(account_id)
-                last_change = account_info.get("last_change") if account_info else None
-                duration = self._calc_duration(last_change)
+                duration = self._calc_duration(prev_last_change)
 
                 caption = self._format_notification(
                     username, old_status, new_status,
@@ -317,43 +330,7 @@ class Monitor:
             time.sleep(min(1.0, max(0.1, end - time.time())))
 
     def check_single(self, username: str) -> dict:
-        result = check_account(username, self.config)
-        if result["classification"] == "MISSING":
-            result = verify_with_playwright(username, result, self.config)
-
-        account_id = self.db.get_or_create_account(username)
-        old_status = self.db.get_account_status(username)
-        new_status = result["classification"]
-
-        self.db.update_account_status(account_id, new_status)
-
-        check_data = {
-            "account_id": account_id,
-            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
-            "status": new_status,
-            "status_code": result.get("status_code"),
-            "latency_ms": result.get("latency_ms", 0),
-            "response_size": result.get("response_size", 0),
-            "response_hash": result.get("response_hash", ""),
-            "raw_response_path": result.get("raw_response_path", ""),
-            "verification_status": result.get("verification_status"),
-            "error_message": result.get("error_message"),
-            "retry_count": result.get("retry_count", 0),
-        }
-        self.db.save_check(check_data)
-
-        is_transition = old_status is not None and old_status != new_status
-        if is_transition:
-            self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result)
-
-        return {
-            "username": username,
-            "status": new_status,
-            "old_status": old_status,
-            "transition": is_transition,
-            "latency_ms": result.get("latency_ms", 0),
-            "status_code": result.get("status_code"),
-        }
+        return self._check_single_account(username)
 
     def get_uptime(self) -> str:
         if not self.start_time:
