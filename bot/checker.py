@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import time
 from datetime import datetime, timezone
@@ -116,7 +117,8 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
     from curl_cffi import requests as cffi_requests
 
     url = API_URL.format(username)
-    headers = build_headers(config.user_agent)
+    user_agent = random.choice(config.user_agents)
+    headers = build_headers(user_agent)
     proxy_url = config.proxy.get_url()
 
     result = {
@@ -276,8 +278,9 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=config.playwright.headless)
             try:
+                user_agent = random.choice(config.user_agents)
                 context = await browser.new_context(
-                    user_agent=config.user_agent,
+                    user_agent=user_agent,
                     viewport={"width": 1920, "height": 1080},
                     color_scheme="dark",
                 )

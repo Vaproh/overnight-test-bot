@@ -49,7 +49,20 @@ screenshots_dir: "./data/screenshots"
 # Logging level (DEBUG, INFO, WARNING, ERROR)
 log_level: "INFO"
 
-# User agent for Instagram API
+# User agent for Instagram API (rotate to avoid detection)
+user_agents:
+  - "Instagram 320.0.0.0 Android (33; 33; SM-S908B; SM-S908B; 33; 33; exynos2200; en_US; 701237498)"
+  - "Instagram 319.0.0.0 Android (34; 34; Pixel 8 Pro; Pixel 8 Pro; 34; 34; shiba; en_US; 701237498)"
+  - "Instagram 318.0.0.0 Android (33; 33; SM-A546B; SM-A546B; 33; 33; exynos1380; en_US; 701237498)"
+  - "Instagram 317.0.0.0 Android (14; 14; SM-S918B; SM-S918B; 14; 14; qcom; en_US; 701237498)"
+  - "Instagram 316.0.0.0 Android (33; 33; SM-A536B; SM-A536B; 33; 33; exynos1280; en_US; 701237498)"
+  - "Instagram 315.0.0.0 Android (34; 34; Pixel 7a; Pixel 7a; 34; 34; lynx; en_US; 701237498)"
+  - "Instagram 314.0.0.0 Android (33; 33; SM-S906B; SM-S906B; 33; 33; exynos2200; en_US; 701237498)"
+  - "Instagram 313.0.0.0 Android (33; 33; SM-A546E; SM-A546E; 33; 33; exynos1380; en_US; 701237498)"
+  - "Instagram 312.0.0.0 Android (14; 14; Pixel 8; Pixel 8; 14; 14; shiba; en_US; 701237498)"
+  - "Instagram 311.0.0.0 Android (33; 33; SM-S916B; SM-S916B; 33; 33; exynos2400; en_US; 701237498)"
+
+# Legacy single user agent (used if user_agents list is empty)
 user_agent: "Instagram 320.0.0.0 Android (33; 33; SM-S908B; SM-S908B; 33; 33; exynos2200; en_US; 701237498)"
 
 # Test accounts - verified once at startup, not continuously monitored

@@ -62,7 +62,9 @@ class Config:
     log_level: str = "INFO"
     test_accounts: List[str] = field(default_factory=list)
     admins: List[str] = field(default_factory=lambda: ["vaproh"])
-    user_agent: str = "Instagram 320.0.0.0 Android (33; 33; SM-S908B; SM-S908B; 33; 33; exynos2200; en_US; 701237498)"
+    user_agents: List[str] = field(default_factory=lambda: [
+        "Instagram 320.0.0.0 Android (33; 33; SM-S908B; SM-S908B; 33; 33; exynos2200; en_US; 701237498)",
+    ])
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":
@@ -109,5 +111,5 @@ class Config:
             log_level=data.get("log_level", "INFO"),
             test_accounts=data.get("test_accounts", []),
             admins=data.get("admins", ["vaproh"]),
-            user_agent=data.get("user_agent", cls.user_agent),
+            user_agents=data.get("user_agents") or cls.user_agents,
         )
