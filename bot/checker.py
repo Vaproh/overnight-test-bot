@@ -133,22 +133,6 @@ def detect_overlay_snapshot(snapshot: str) -> Optional[str]:
     return None
 
 
-def classify_playwright_response(snapshot: str, status_code: Optional[int]) -> str:
-    """Classify profile status from Playwright accessibility snapshot.
-    Uses the same approach as the screenshot service's Camofox client.
-    """
-    if status_code == 404:
-        return "MISSING"
-
-    if is_profile_unavailable_snapshot(snapshot):
-        return "MISSING"
-
-    if is_page_loaded_snapshot(snapshot):
-        return "ACTIVE"
-
-    return "UNKNOWN"
-
-
 def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
     from curl_cffi import requests as cffi_requests
 
@@ -457,8 +441,8 @@ def verify_with_playwright(username: str, curl_result: Dict[str, Any], config: C
         logger.warning(f"Playwright returned {pw_class} for {username}, keeping curl result")
         raw = pw_result.get("raw_response", {})
         if isinstance(raw, dict):
-            preview = raw.get("content_preview", "")[:500]
-            logger.debug(f"Page preview for {username}: {preview}")
+            preview = raw.get("snapshot", "")[:500]
+            logger.debug(f"Page snapshot for {username}: {preview}")
 
     return curl_result
 
