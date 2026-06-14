@@ -177,9 +177,15 @@ class Monitor:
 
         if should_notify and self.notify_fn:
             try:
-                screenshot_data = capture_profile_screenshot(username, self.config, new_status.lower())
-                screenshot_path = screenshot_data.get("screenshot_path")
-                profile_data = screenshot_data.get("profile_data", {})
+                screenshot_path = None
+                screenshot_error = None
+                profile_data = {}
+
+                if new_status == "ACTIVE":
+                    screenshot_data = capture_profile_screenshot(username, self.config, new_status.lower())
+                    screenshot_path = screenshot_data.get("screenshot_path")
+                    profile_data = screenshot_data.get("profile_data", {})
+                    screenshot_error = screenshot_data.get("error")
 
                 account_info = self.db.get_account_by_id(account_id)
                 last_change = account_info.get("last_change") if account_info else None
@@ -193,17 +199,23 @@ class Monitor:
 
                 if screenshot_path and self.notify_photo_fn:
                     self.notify_photo_fn(screenshot_path, caption)
-                elif self.notify_fn:
+                elif screenshot_error:
+                    error_reasons = {
+                        "profile_unavailable": "Profile is deactivated or doesn't exist",
+                        "service_down": "Screenshot service is down (Camofox offline)",
+                        "timeout": "Page load timed out",
+                        "rate_limited": "Screenshot service rate limited",
+                        "connection_refused": "Screenshot service unreachable",
+                    }
+                    reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
                     fallback = (
                         f"{caption}\n\n"
-                        f"⚠️ <b>Screenshot unavailable</b>\n\n"
-                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>\n\n"
-                        f"<b>Possible causes:</b>\n"
-                        f"• Instagram served a blank/challenge page\n"
-                        f"• Proxy IP flagged after sustained use\n"
-                        f"• Page didn't load in time"
+                        f"⚠️ <b>{reason}</b>\n\n"
+                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>"
                     )
                     self.notify_fn(fallback)
+                else:
+                    self.notify_fn(caption)
 
                 self.db.conn.execute(
                     "UPDATE events SET notification_sent = 1 WHERE id = ?", (event_id,)

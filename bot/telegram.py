@@ -454,7 +454,7 @@ class TelegramBot:
             return
 
         self.db.get_or_create_account(username)
-        await update.message.reply_text(
+        status_msg = await update.message.reply_text(
             f"✅ <b>@{username}</b> added.\n🔍 Checking status...",
             parse_mode="HTML",
         )
@@ -467,7 +467,12 @@ class TelegramBot:
 
             profile_data = {}
             screenshot_path = None
+            screenshot_error = None
             if status == "ACTIVE":
+                await status_msg.edit_text(
+                    f"✅ <b>@{username}</b> added.\n📸 Grabbing screenshot...",
+                    parse_mode="HTML",
+                )
                 import asyncio as _asyncio
                 loop = _asyncio.get_running_loop()
                 screenshot_data = await loop.run_in_executor(
@@ -475,6 +480,7 @@ class TelegramBot:
                 )
                 screenshot_path = screenshot_data.get("screenshot_path")
                 profile_data = screenshot_data.get("profile_data", {})
+                screenshot_error = screenshot_data.get("error")
 
             emoji = STATUS_EMOJI.get(status, "⚪")
             divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
@@ -505,22 +511,27 @@ class TelegramBot:
                         caption=caption,
                         parse_mode="HTML",
                     )
+                await status_msg.delete()
+            elif status == "ACTIVE" and screenshot_error:
+                error_reasons = {
+                    "profile_unavailable": "Profile is deactivated or doesn't exist",
+                    "service_down": "Screenshot service is down (Camofox offline)",
+                    "timeout": "Page load timed out",
+                    "rate_limited": "Screenshot service rate limited",
+                    "connection_refused": "Screenshot service unreachable",
+                    "invalid_username": "Invalid username format",
+                }
+                reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
+                fallback = (
+                    f"{caption}\n\n"
+                    f"⚠️ <b>{reason}</b>\n\n"
+                    f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>"
+                )
+                await status_msg.edit_text(fallback, parse_mode="HTML")
             else:
-                if status == "ACTIVE":
-                    fallback = (
-                        f"{caption}\n\n"
-                        f"⚠️ <b>Screenshot unavailable</b>\n\n"
-                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>\n\n"
-                        f"<b>Possible causes:</b>\n"
-                        f"• Instagram served a blank/challenge page\n"
-                        f"• Proxy IP flagged after sustained use\n"
-                        f"• Page didn't load in time"
-                    )
-                else:
-                    fallback = caption
-                await update.message.reply_text(fallback, parse_mode="HTML")
+                await status_msg.edit_text(caption, parse_mode="HTML")
         except Exception as e:
-            await update.message.reply_text(
+            await status_msg.edit_text(
                 f"⚠️ Added but check failed:\n<code>{e}</code>",
                 parse_mode="HTML",
             )
@@ -599,7 +610,7 @@ class TelegramBot:
             return
 
         username = context.args[0].lstrip("@")
-        await update.message.reply_text(f"🧪 Testing @{username}...")
+        status_msg = await update.message.reply_text(f"🧪 Testing @{username}...")
 
         try:
             from .checker import check_account, capture_profile_screenshot
@@ -609,7 +620,9 @@ class TelegramBot:
 
             profile_data = {}
             screenshot_path = None
+            screenshot_error = None
             if result["classification"] == "ACTIVE":
+                await status_msg.edit_text(f"🧪 Testing @{username}...\n📸 Grabbing screenshot...")
                 import asyncio as _asyncio
                 loop = _asyncio.get_running_loop()
                 screenshot_data = await loop.run_in_executor(
@@ -617,6 +630,7 @@ class TelegramBot:
                 )
                 screenshot_path = screenshot_data.get("screenshot_path")
                 profile_data = screenshot_data.get("profile_data", {})
+                screenshot_error = screenshot_data.get("error")
 
             caption = (
                 f"🧪 <b>Test Result</b>\n"
@@ -642,22 +656,27 @@ class TelegramBot:
                         caption=caption,
                         parse_mode="HTML",
                     )
+                await status_msg.delete()
+            elif result["classification"] == "ACTIVE" and screenshot_error:
+                error_reasons = {
+                    "profile_unavailable": "Profile is deactivated or doesn't exist",
+                    "service_down": "Screenshot service is down (Camofox offline)",
+                    "timeout": "Page load timed out",
+                    "rate_limited": "Screenshot service rate limited",
+                    "connection_refused": "Screenshot service unreachable",
+                    "invalid_username": "Invalid username format",
+                }
+                reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
+                fallback = (
+                    f"{caption}\n\n"
+                    f"⚠️ <b>{reason}</b>\n\n"
+                    f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>"
+                )
+                await status_msg.edit_text(fallback, parse_mode="HTML")
             else:
-                if result["classification"] == "ACTIVE":
-                    fallback = (
-                        f"{caption}\n\n"
-                        f"⚠️ <b>Screenshot unavailable</b>\n\n"
-                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>\n\n"
-                        f"<b>Possible causes:</b>\n"
-                        f"• Instagram served a blank/challenge page\n"
-                        f"• Proxy IP flagged after sustained use\n"
-                        f"• Page didn't load in time"
-                    )
-                else:
-                    fallback = caption
-                await update.message.reply_text(fallback, parse_mode="HTML")
+                await status_msg.edit_text(caption, parse_mode="HTML")
         except Exception as e:
-            await update.message.reply_text(
+            await status_msg.edit_text(
                 f"❌ Error testing @{username}:\n<code>{e}</code>",
                 parse_mode="HTML",
             )

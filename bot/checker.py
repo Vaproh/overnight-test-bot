@@ -186,10 +186,12 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
     result = {
         "screenshot_path": None,
         "profile_data": {},
+        "error": None,
     }
 
     service_url = config.screenshot_service_url
     if not service_url:
+        result["error"] = "no_service"
         logger.warning("No screenshot_service_url configured, skipping screenshot")
         return result
 
@@ -214,17 +216,35 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                 result["screenshot_path"] = screenshot_path
                 logger.info(f"Screenshot captured for {username} via service")
             else:
+                result["error"] = "not_image"
                 logger.warning(f"Screenshot service returned non-image for {username}")
         elif resp.status_code == 404:
+            result["error"] = "profile_unavailable"
             logger.info(f"Screenshot service: profile unavailable for {username}")
+        elif resp.status_code == 400:
+            result["error"] = "invalid_username"
+            logger.warning(f"Screenshot service: invalid username for {username}")
+        elif resp.status_code == 429:
+            result["error"] = "rate_limited"
+            logger.warning(f"Screenshot service: rate limited for {username}")
+        elif resp.status_code == 503:
+            result["error"] = "service_down"
+            logger.error(f"Screenshot service: Camofox not available")
+        elif resp.status_code == 504:
+            result["error"] = "timeout"
+            logger.error(f"Screenshot service: page load timeout for {username}")
         else:
+            result["error"] = f"http_{resp.status_code}"
             logger.warning(f"Screenshot service returned {resp.status_code} for {username}")
 
     except _requests.exceptions.ConnectionError:
+        result["error"] = "connection_refused"
         logger.error(f"Screenshot service unreachable at {service_url}")
     except _requests.exceptions.Timeout:
+        result["error"] = "timeout"
         logger.error(f"Screenshot service timed out for {username}")
     except Exception as e:
+        result["error"] = "unknown"
         logger.error(f"Screenshot service error for {username}: {e}")
 
     return result
