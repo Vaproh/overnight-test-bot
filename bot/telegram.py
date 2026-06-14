@@ -48,7 +48,10 @@ class TelegramBot:
             return False
         is_authorized = self.db.is_admin(username) or self.db.is_allowed_user(username)
         if is_authorized and update.effective_chat:
-            self.db.update_admin_chat_id(username, update.effective_chat.id)
+            if self.db.is_admin(username):
+                self.db.update_admin_chat_id(username, update.effective_chat.id)
+            else:
+                self.db.update_allowed_user_chat_id(username, update.effective_chat.id)
         return is_authorized
 
     def _is_admin(self, update: Update) -> bool:
@@ -73,6 +76,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("check", self.cmd_check))
         self.app.add_handler(CommandHandler("test", self.cmd_test))
         self.app.add_handler(CommandHandler("ping", self.cmd_ping))
+        self.app.add_handler(CommandHandler("screenshot", self.cmd_screenshot))
         self.app.add_handler(CommandHandler("proxy", self.cmd_proxy))
         self.app.add_handler(CommandHandler("mainmenu", self.cmd_mainmenu))
         self.app.add_handler(CommandHandler("status", self.cmd_status))
@@ -83,6 +87,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("setcookie", self.cmd_setcookie))
         self.app.add_handler(CommandHandler("backup", self.cmd_backup))
         self.app.add_handler(CommandHandler("listusers", self.cmd_listusers))
+        self.app.add_handler(CommandHandler("changelog", self.cmd_changelog))
 
         self.app.add_handler(CallbackQueryHandler(self._handle_callback))
 
@@ -126,6 +131,10 @@ class TelegramBot:
             [
                 InlineKeyboardButton("🧪 Test", callback_data="menu:test"),
                 InlineKeyboardButton("🏥 Health", callback_data="menu:health"),
+                InlineKeyboardButton("📸 SS Svc", callback_data="menu:screenshot"),
+            ],
+            [
+                InlineKeyboardButton("📋 Changelog", callback_data="menu:changelog"),
             ],
         ]
         if is_admin:
@@ -192,6 +201,8 @@ class TelegramBot:
                 f"📡 Accounts: {len(accounts)}",
                 parse_mode="HTML",
             )
+        elif data == "menu:screenshot":
+            await self._handle_screenshot_callback(query)
         elif data == "menu:adduser":
             if not is_admin:
                 await query.edit_message_text("⛔ Admin only.", parse_mode="HTML")
@@ -216,6 +227,25 @@ class TelegramBot:
                 "🍪 <b>Upload Cookies</b>\n\nSend a file named <code>cookies.txt</code> with /setcookie",
                 parse_mode="HTML",
             )
+        elif data == "menu:changelog":
+            changelogs = self.db.get_changelogs(limit=5)
+            if not changelogs:
+                await query.edit_message_text(
+                    "📋 <b>Changelog</b>\n\nNo changelogs yet.",
+                    parse_mode="HTML",
+                )
+                return
+            lines = ["📋 <b>Recent Changelogs</b>\n━━━━━━━━━━━━━━━━━━━"]
+            for cl in changelogs:
+                try:
+                    dt = datetime.fromisoformat(cl["created_at"].replace("Z", "+00:00"))
+                    time_str = dt.strftime("%b %d %H:%M")
+                except Exception:
+                    time_str = cl["created_at"][:16]
+                lines.append(f"\n<b>{time_str}</b> — @{cl['author']}\n{cl['message']}")
+            lines.append("\n━━━━━━━━━━━━━━━━━━━")
+            lines.append("💡 <code>/changelog add &lt;msg&gt;</code> — Admin only")
+            await query.edit_message_text("\n".join(lines), parse_mode="HTML")
         elif data == "menu:backup":
             if not is_admin:
                 await query.edit_message_text("⛔ Admin only.", parse_mode="HTML")
@@ -290,6 +320,55 @@ class TelegramBot:
         except Exception as e:
             await query.edit_message_text(f"❌ Error: <code>{e}</code>", parse_mode="HTML")
 
+    async def _handle_screenshot_callback(self, query):
+        service_url = self.config.screenshot_service_url
+        if not service_url:
+            await query.edit_message_text(
+                "⚠️ Screenshot service not configured.",
+                parse_mode="HTML",
+            )
+            return
+        try:
+            import requests as _requests
+            start = _time.time()
+            resp = _requests.get(f"{service_url.rstrip('/')}/health", timeout=5)
+            latency = (_time.time() - start) * 1000
+
+            if resp.status_code == 200:
+                data = resp.json()
+                camofox = data.get("camofox", False)
+                status = data.get("status", "unknown")
+                emoji = "🟢" if camofox else "🔴"
+                camofox_text = "Online" if camofox else "Offline"
+                await query.edit_message_text(
+                    f"📸 <b>Screenshot Service</b>\n\n"
+                    f"{emoji} <b>Status:</b> {status}\n"
+                    f"🦊 <b>Camofox:</b> {camofox_text}\n"
+                    f"🔗 <code>{service_url}</code>\n"
+                    f"⚡ Latency: {latency:.0f}ms",
+                    parse_mode="HTML",
+                )
+            else:
+                await query.edit_message_text(
+                    f"🔴 <b>Screenshot Service Unhealthy</b>\n\nHTTP {resp.status_code}\n<code>{service_url}</code>",
+                    parse_mode="HTML",
+                )
+        except _requests.exceptions.ConnectionError:
+            await query.edit_message_text(
+                f"🔴 <b>Screenshot Service Offline</b>\n\n<code>{service_url}</code>",
+                parse_mode="HTML",
+            )
+        except _requests.exceptions.Timeout:
+            await query.edit_message_text(
+                f"🔴 <b>Screenshot Service Timeout</b>\n\n<code>{service_url}</code>",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await query.edit_message_text(
+                f"🔴 <b>Error:</b> <code>{e}</code>",
+                parse_mode="HTML",
+            )
+
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
             await self._deny(update)
@@ -342,7 +421,10 @@ class TelegramBot:
             "🔍 /check <code>username</code> — Manual check\n"
             "🧪 /test <code>username</code> — Test account (no monitor)\n"
             "🏓 /ping — Check bot latency\n"
-            "📊 /proxy — Proxy traffic stats"
+            "📸 /screenshot — Screenshot service status\n"
+            "📊 /proxy — Proxy traffic stats\n"
+            "📋 /changelog — View updates\n"
+            "📋 /changelog add <code>msg</code> — Admin only"
         )
         await update.message.reply_text(text, parse_mode="HTML")
 
@@ -700,6 +782,70 @@ class TelegramBot:
             parse_mode="HTML",
         )
 
+    async def cmd_screenshot(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._check_access(update):
+            await self._deny(update)
+            return
+
+        service_url = self.config.screenshot_service_url
+        if not service_url:
+            await update.message.reply_text(
+                "⚠️ <b>Screenshot service not configured</b>\n\n"
+                "Set <code>screenshot_service_url</code> in config.yaml",
+                parse_mode="HTML",
+            )
+            return
+
+        msg = await update.message.reply_text("📸 Checking screenshot service...")
+
+        try:
+            import requests as _requests
+            start = _time.time()
+            resp = _requests.get(f"{service_url.rstrip('/')}/health", timeout=5)
+            latency = (_time.time() - start) * 1000
+
+            if resp.status_code == 200:
+                data = resp.json()
+                camofox = data.get("camofox", False)
+                status = data.get("status", "unknown")
+                emoji = "🟢" if camofox else "🔴"
+                camofox_text = "Online" if camofox else "Offline"
+                await msg.edit_text(
+                    f"📸 <b>Screenshot Service</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"{emoji} <b>Status:</b> {status}\n"
+                    f"🦊 <b>Camofox:</b> {camofox_text}\n"
+                    f"🔗 <b>URL:</b> <code>{service_url}</code>\n"
+                    f"⚡ <b>Latency:</b> {latency:.0f}ms",
+                    parse_mode="HTML",
+                )
+            else:
+                await msg.edit_text(
+                    f"🔴 <b>Screenshot Service Unhealthy</b>\n\n"
+                    f"HTTP {resp.status_code}\n"
+                    f"🔗 <code>{service_url}</code>",
+                    parse_mode="HTML",
+                )
+        except _requests.exceptions.ConnectionError:
+            await msg.edit_text(
+                f"🔴 <b>Screenshot Service Offline</b>\n\n"
+                f"Cannot connect to <code>{service_url}</code>\n"
+                f"Make sure the service is running.",
+                parse_mode="HTML",
+            )
+        except _requests.exceptions.Timeout:
+            await msg.edit_text(
+                f"🔴 <b>Screenshot Service Timeout</b>\n\n"
+                f"Service at <code>{service_url}</code> did not respond in 5s",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await msg.edit_text(
+                f"🔴 <b>Screenshot Service Error</b>\n\n"
+                f"<code>{e}</code>",
+                parse_mode="HTML",
+            )
+
     async def cmd_proxy(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
             await self._deny(update)
@@ -980,6 +1126,83 @@ class TelegramBot:
             os.remove(zip_path)
         except Exception as e:
             await msg.edit_text(f"❌ Backup failed:\n<code>{e}</code>", parse_mode="HTML")
+
+    async def cmd_changelog(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._check_access(update):
+            await self._deny(update)
+            return
+
+        if not context.args:
+            changelogs = self.db.get_changelogs(limit=5)
+            if not changelogs:
+                await update.message.reply_text(
+                    "📋 <b>Changelog</b>\n\nNo changelogs yet.",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = ["📋 <b>Recent Changelogs</b>\n━━━━━━━━━━━━━━━━━━━"]
+            for cl in changelogs:
+                try:
+                    dt = datetime.fromisoformat(cl["created_at"].replace("Z", "+00:00"))
+                    time_str = dt.strftime("%b %d %H:%M")
+                except Exception:
+                    time_str = cl["created_at"][:16]
+                lines.append(f"\n<b>{time_str}</b> — @{cl['author']}\n{cl['message']}")
+            lines.append("\n━━━━━━━━━━━━━━━━━━━")
+            lines.append("💡 <code>/changelog add &lt;message&gt;</code> — Admin only")
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+            return
+
+        if not self._is_admin(update):
+            await update.message.reply_text(
+                "⛔ Only admins can add changelogs.",
+                parse_mode="HTML",
+            )
+            return
+
+        if context.args[0].lower() == "add":
+            if len(context.args) < 2:
+                await update.message.reply_text(
+                    "📝 <b>Usage:</b> /changelog add <code>message</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+            message = " ".join(context.args[1:])
+            author = self._get_username(update)
+            self.db.add_changelog(message, author)
+
+            await update.message.reply_text(
+                f"✅ <b>Changelog added</b>\n\n{message}",
+                parse_mode="HTML",
+            )
+
+            chat_ids = self.db.get_all_recipient_chat_ids()
+            sender_chat_id = update.effective_chat.id
+            broadcast = (
+                f"📢 <b>New Changelog</b>\n"
+                "━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{message}\n\n"
+                f"— @{author}"
+            )
+            for cid in chat_ids:
+                if cid != sender_chat_id:
+                    try:
+                        await self.app.bot.send_message(
+                            chat_id=cid,
+                            text=broadcast,
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        pass
+        else:
+            await update.message.reply_text(
+                "📝 <b>Usage:</b>\n"
+                "/changelog — View recent changelogs\n"
+                "/changelog add <code>message</code> — Add changelog (admin)",
+                parse_mode="HTML",
+            )
 
     def notify(self, message: str):
         if not self.app or not self.app.bot:

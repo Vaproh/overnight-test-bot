@@ -77,6 +77,13 @@ class Database:
                 username TEXT UNIQUE NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS changelogs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message TEXT NOT NULL,
+                author TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
 
     def _migrate(self):
@@ -85,6 +92,12 @@ class Database:
         columns = {row["name"] for row in cursor.fetchall()}
         if "chat_id" not in columns:
             cursor.execute("ALTER TABLE admins ADD COLUMN chat_id INTEGER")
+            self.conn.commit()
+
+        cursor.execute("PRAGMA table_info(allowed_users)")
+        columns = {row["name"] for row in cursor.fetchall()}
+        if "chat_id" not in columns:
+            cursor.execute("ALTER TABLE allowed_users ADD COLUMN chat_id INTEGER")
             self.conn.commit()
 
     def update_admin_chat_id(self, username: str, chat_id: int):
@@ -157,6 +170,33 @@ class Database:
         cur = self.conn.cursor()
         cur.execute("SELECT username FROM allowed_users ORDER BY id")
         return [row["username"] for row in cur.fetchall()]
+
+    def update_allowed_user_chat_id(self, username: str, chat_id: int):
+        self.conn.execute(
+            "UPDATE allowed_users SET chat_id = ? WHERE username = ?", (chat_id, username)
+        )
+        self.conn.commit()
+
+    def add_changelog(self, message: str, author: str) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO changelogs (message, author) VALUES (?, ?)",
+            (message, author),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def get_changelogs(self, limit: int = 10) -> List[Dict[str, Any]]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM changelogs ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(row) for row in cur.fetchall()]
+
+    def get_all_recipient_chat_ids(self) -> List[int]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT chat_id FROM admins WHERE chat_id IS NOT NULL")
+        admin_ids = [row["chat_id"] for row in cur.fetchall()]
+        cur.execute("SELECT chat_id FROM allowed_users WHERE chat_id IS NOT NULL")
+        user_ids = [row["chat_id"] for row in cur.fetchall()]
+        return list(set(admin_ids + user_ids))
 
     def cleanup_old_data(self, days: int = 7, raw_dir: str = "", screenshots_dir: str = "") -> dict:
         from datetime import timedelta

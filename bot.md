@@ -32,6 +32,8 @@
 | `/listusers` | List all admins and allowed users |
 | `/setcookie` | Upload `cookies.txt` file for Instagram auth |
 | `/backup` | Zip data folder and send via Telegram |
+| `/changelog` | View recent changelogs |
+| `/changelog add <msg>` | Add a changelog and broadcast to all users (admin) |
 
 ## Access Control
 
