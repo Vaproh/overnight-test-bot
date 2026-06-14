@@ -180,6 +180,17 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
     return result
 
 
+def _is_blank_image(img, variance_threshold=20):
+    from PIL import ImageStat
+    w, h = img.size
+    if w == 0 or h == 0:
+        return True
+    small = img.resize((50, 50))
+    stat = ImageStat.Stat(small)
+    spread = max(stat.stddev[:3])
+    return spread < variance_threshold
+
+
 def capture_profile_screenshot(username: str, config: Config, status: str = "unknown") -> dict:
     import asyncio
     from playwright.async_api import async_playwright
@@ -212,7 +223,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
 
             try:
-                await page.wait_for_selector("header, main header, section main header", timeout=15000)
+                await page.wait_for_selector("header img, header section, main header", timeout=10000)
             except Exception:
                 await page.wait_for_timeout(5000)
 
@@ -241,15 +252,12 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                 scale = h / 915
                 cropped = img.crop((0, int(30 * scale), w, int(300 * scale)))
 
-                pixels = cropped.getdata()
-                is_blank = all(p == (255, 255, 255) or p == (255, 255, 255, 255) for p in list(pixels)[:500])
-                if is_blank:
-                    logger.warning(f"Blank screenshot for {username}, skipping")
-                    os.remove(tmp_path)
-                else:
+                if not _is_blank_image(cropped):
                     cropped.save(screenshot_path)
-                    os.remove(tmp_path)
                     result["screenshot_path"] = screenshot_path
+                else:
+                    logger.warning(f"Blank screenshot for {username}, skipping")
+                os.remove(tmp_path)
 
                 await browser.close()
                 return
@@ -261,15 +269,12 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             w, h = img.size
             cropped = img.crop((0, 0, w, int(600 * (h / 915))))
 
-            pixels = cropped.getdata()
-            is_blank = all(p == (255, 255, 255) or p == (255, 255, 255, 255) for p in list(pixels)[:500])
-            if is_blank:
-                logger.warning(f"Blank screenshot for {username}, skipping")
-                os.remove(tmp_path)
-            else:
+            if not _is_blank_image(cropped):
                 cropped.save(screenshot_path)
-                os.remove(tmp_path)
                 result["screenshot_path"] = screenshot_path
+            else:
+                logger.warning(f"Blank screenshot for {username}, skipping")
+            os.remove(tmp_path)
 
             await browser.close()
 
