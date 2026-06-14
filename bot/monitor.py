@@ -194,7 +194,16 @@ class Monitor:
                 if screenshot_path and self.notify_photo_fn:
                     self.notify_photo_fn(screenshot_path, caption)
                 elif self.notify_fn:
-                    self.notify_fn(caption)
+                    fallback = (
+                        f"{caption}\n\n"
+                        f"⚠️ <b>Screenshot unavailable</b>\n\n"
+                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>\n\n"
+                        f"<b>Possible causes:</b>\n"
+                        f"• Instagram served a blank/challenge page\n"
+                        f"• Proxy IP flagged after sustained use\n"
+                        f"• Page didn't load in time"
+                    )
+                    self.notify_fn(fallback)
 
                 self.db.conn.execute(
                     "UPDATE events SET notification_sent = 1 WHERE id = ?", (event_id,)
