@@ -46,7 +46,10 @@ class TelegramBot:
         username = self._get_username(update)
         if not username:
             return False
-        return self.db.is_admin(username) or self.db.is_allowed_user(username)
+        is_authorized = self.db.is_admin(username) or self.db.is_allowed_user(username)
+        if is_authorized and update.effective_chat:
+            self.db.update_admin_chat_id(username, update.effective_chat.id)
+        return is_authorized
 
     def _is_admin(self, update: Update) -> bool:
         return self.db.is_admin(self._get_username(update))
@@ -971,28 +974,30 @@ class TelegramBot:
             except RuntimeError:
                 loop = None
 
+            coro = self._send_notification(message)
             if loop and loop.is_running():
-                asyncio.ensure_future(self._send_notification(message))
+                asyncio.ensure_future(coro)
             elif loop:
-                loop.run_until_complete(self._send_notification(message))
+                loop.run_until_complete(coro)
             else:
-                asyncio.run(self._send_notification(message))
+                asyncio.run(coro)
         except Exception as e:
             logger.error(f"Failed to queue notification: {e}")
 
     async def _send_notification(self, message: str):
-        try:
-            chat_id = self.config.telegram_chat_id
-            if not chat_id:
-                logger.warning("No telegram_chat_id configured, skipping notification")
-                return
-            await self.app.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            logger.error(f"Failed to send Telegram notification: {e}")
+        chat_ids = self.db.get_admin_chat_ids()
+        if not chat_ids:
+            logger.warning("No admin chat_ids known, skipping notification")
+            return
+        for chat_id in chat_ids:
+            try:
+                await self.app.bot.send_message(
+                    chat_id=chat_id,
+                    text=message,
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                logger.error(f"Failed to send notification to {chat_id}: {e}")
 
     def notify_photo(self, photo_path: str, caption: str):
         if not self.app or not self.app.bot:
@@ -1006,70 +1011,61 @@ class TelegramBot:
             except RuntimeError:
                 loop = None
 
+            coro = self._send_photo(photo_path, caption)
             if loop and loop.is_running():
-                asyncio.ensure_future(self._send_photo(photo_path, caption))
+                asyncio.ensure_future(coro)
             elif loop:
-                loop.run_until_complete(self._send_photo(photo_path, caption))
+                loop.run_until_complete(coro)
             else:
-                asyncio.run(self._send_photo(photo_path, caption))
+                asyncio.run(coro)
         except Exception as e:
             logger.error(f"Failed to queue photo: {e}")
 
     async def _send_photo(self, photo_path: str, caption: str):
-        try:
-            chat_id = self.config.telegram_chat_id
-            if not chat_id:
-                logger.warning("No telegram_chat_id configured, skipping photo")
-                return
+        chat_ids = self.db.get_admin_chat_ids()
+        if not chat_ids:
+            logger.warning("No admin chat_ids known, skipping photo")
+            return
 
-            if not os.path.exists(photo_path):
-                logger.warning(f"Screenshot not found: {photo_path}")
-                await self.app.bot.send_message(
-                    chat_id=chat_id,
-                    text=caption,
-                    parse_mode="HTML",
-                )
-                return
+        for chat_id in chat_ids:
+            try:
+                if not os.path.exists(photo_path):
+                    await self.app.bot.send_message(
+                        chat_id=chat_id,
+                        text=caption,
+                        parse_mode="HTML",
+                    )
+                    continue
 
-            with open(photo_path, "rb") as photo:
-                await self.app.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=photo,
-                    caption=caption,
-                    parse_mode="HTML",
-                )
-        except Exception as e:
-            logger.error(f"Failed to send Telegram photo: {e}")
+                with open(photo_path, "rb") as photo:
+                    await self.app.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo,
+                        caption=caption,
+                        parse_mode="HTML",
+                    )
+            except Exception as e:
+                logger.error(f"Failed to send photo to {chat_id}: {e}")
 
     def notify_admin(self, message: str):
         if not self.app or not self.app.bot:
             return
-        try:
-            import asyncio
+        self.notify(message)
+
+    def shutdown_notify(self, message: str):
+        if not self.app or not self.app.bot:
+            return
+        chat_ids = self.db.get_admin_chat_ids()
+        if not chat_ids:
+            return
+        import requests as _requests
+        token = self.config.telegram_token
+        for chat_id in chat_ids:
             try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            async def _send():
-                admins = self.db.get_all_admins()
-                for admin in admins:
-                    try:
-                        chat = await self.app.bot.get_chat(f"@{admin}")
-                        if chat:
-                            await self.app.bot.send_message(
-                                chat_id=chat.id,
-                                text=message,
-                                parse_mode="HTML",
-                            )
-                    except Exception:
-                        pass
-
-            if loop and loop.is_running():
-                asyncio.ensure_future(_send())
-            elif loop:
-                loop.run_until_complete(_send())
-            else:
-                asyncio.run(_send())
-        except Exception as e:
-            logger.error(f"Failed to notify admin: {e}")
+                _requests.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
+                    timeout=5,
+                )
+            except Exception:
+                pass

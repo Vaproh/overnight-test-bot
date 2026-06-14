@@ -43,20 +43,21 @@ def main():
 
     def shutdown(signum, frame):
         logger.info(f"Received signal {signum}, shutting down...")
-        if telegram_bot:
-            telegram_bot.notify("🔴 <b>Bot stopped</b>")
         monitor.stop()
+        if telegram_bot:
+            telegram_bot.shutdown_notify("🔴 <b>Bot stopped</b>")
         if telegram_bot and telegram_bot.app:
             telegram_bot.app.stop_running()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGHUP, shutdown)
 
     try:
         if telegram_bot and telegram_bot.app:
             async def on_post_init(application):
                 await telegram_bot.post_init(application)
-                telegram_bot.notify("🟢 <b>Bot started</b>")
+                await telegram_bot._send_notification("🟢 <b>Bot started</b>")
 
             telegram_bot.app.post_init = on_post_init
             monitor_thread = threading.Thread(target=monitor.start, daemon=True)

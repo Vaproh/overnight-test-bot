@@ -16,6 +16,7 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self._init_tables()
+        self._migrate()
 
     def _init_tables(self):
         self.conn.executescript("""
@@ -24,27 +25,27 @@ class Database:
                 username TEXT UNIQUE NOT NULL,
                 status TEXT DEFAULT 'UNKNOWN',
                 previous_status TEXT,
-                last_check TEXT,
-                last_change TEXT,
+                last_check TIMESTAMP,
+                last_change TIMESTAMP,
                 check_count INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS checks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 account_id INTEGER NOT NULL,
-                timestamp TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 status TEXT NOT NULL,
                 status_code INTEGER,
                 latency_ms REAL,
-                response_size INTEGER DEFAULT 0,
+                response_size INTEGER,
                 response_hash TEXT,
                 raw_response_path TEXT,
                 verification_status TEXT,
                 error_message TEXT,
                 retry_count INTEGER DEFAULT 0,
-                FOREIGN KEY (account_id) REFERENCES accounts(id)
+                FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS events (
@@ -52,35 +53,50 @@ class Database:
                 account_id INTEGER NOT NULL,
                 old_status TEXT,
                 new_status TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 verification_result TEXT,
                 notification_sent INTEGER DEFAULT 0,
-                FOREIGN KEY (account_id) REFERENCES accounts(id)
+                FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS admins (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                chat_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS allowed_users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-
-            CREATE INDEX IF NOT EXISTS idx_checks_account_id ON checks(account_id);
-            CREATE INDEX IF NOT EXISTS idx_checks_timestamp ON checks(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_events_account_id ON events(account_id);
-            CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
         """)
+
+    def _migrate(self):
+        cursor = self.conn.cursor()
+        cursor.execute("PRAGMA table_info(admins)")
+        columns = {row["name"] for row in cursor.fetchall()}
+        if "chat_id" not in columns:
+            cursor.execute("ALTER TABLE admins ADD COLUMN chat_id INTEGER")
+            self.conn.commit()
+
+    def update_admin_chat_id(self, username: str, chat_id: int):
+        self.conn.execute(
+            "UPDATE admins SET chat_id = ? WHERE username = ?", (chat_id, username)
+        )
+        self.conn.commit()
+
+    def get_admin_chat_ids(self) -> List[int]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT chat_id FROM admins WHERE chat_id IS NOT NULL")
+        return [row["chat_id"] for row in cur.fetchall()]
         self.conn.commit()
 
     def seed_admins(self, usernames: List[str]):
