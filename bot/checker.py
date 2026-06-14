@@ -1,4 +1,4 @@
-"""Checker layer: curl_cffi primary, Playwright verification."""
+"""Checker layer: curl_cffi primary, Playwright verification, screenshot service."""
 
 import hashlib
 import json
@@ -180,234 +180,54 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
     return result
 
 
-def _is_blank_image(img, variance_threshold=20):
-    from PIL import ImageStat
-    w, h = img.size
-    if w == 0 or h == 0:
-        return True
-    small = img.resize((50, 50))
-    stat = ImageStat.Stat(small)
-    spread = max(stat.stddev[:3])
-    return spread < variance_threshold
-
-
 def capture_profile_screenshot(username: str, config: Config, status: str = "unknown") -> dict:
-    import asyncio
-    from playwright.async_api import async_playwright
+    import requests as _requests
 
     result = {
         "screenshot_path": None,
         "profile_data": {},
     }
 
-    url = f"https://www.instagram.com/{username}/"
-
-    async def _capture():
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=config.playwright.headless)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-                viewport={"width": 412, "height": 915},
-                device_scale_factor=2.625,
-                color_scheme="dark",
-            )
-            page = await context.new_page()
-
-            await page.emulate_media(color_scheme="dark")
-
-            if config.instagram_auth.enabled:
-                cookies = load_cookies(config.instagram_auth.cookies_path)
-                if cookies:
-                    await page.context.add_cookies(cookies)
-
-            await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
-
-            try:
-                await page.wait_for_selector("header img, header section, main header", timeout=7000)
-            except Exception:
-                await page.wait_for_timeout(2000)
-
-            await _dismiss_popups(page)
-            await page.wait_for_timeout(500)
-
-            profile_data = await _extract_profile_data_async(page)
-            result["profile_data"] = profile_data
-
-            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            screenshot_dir = os.path.join(config.screenshots_dir, date_str)
-            os.makedirs(screenshot_dir, exist_ok=True)
-
-            ts = datetime.now(timezone.utc).strftime("%H%M%S")
-            filename = f"{username}_{status}_{ts}.png"
-            screenshot_path = os.path.join(screenshot_dir, filename)
-
-            if status == "active":
-                tmp_path = screenshot_path + ".tmp.png"
-                try:
-                    await page.screenshot(path=tmp_path, full_page=False)
-                    from PIL import Image
-                    img = Image.open(tmp_path)
-                    w, h = img.size
-                    scale = h / 915
-                    cropped = img.crop((0, int(30 * scale), w, int(300 * scale)))
-
-                    if not _is_blank_image(cropped):
-                        cropped.save(screenshot_path)
-                        result["screenshot_path"] = screenshot_path
-                    else:
-                        logger.warning(f"Blank screenshot for {username}, skipping")
-                except Exception as e:
-                    logger.error(f"Screenshot failed for {username}: {e}")
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-
-                await browser.close()
-                return
-
-            tmp_path = screenshot_path + ".tmp.png"
-            try:
-                await page.screenshot(path=tmp_path, full_page=False)
-                from PIL import Image
-                img = Image.open(tmp_path)
-                w, h = img.size
-                cropped = img.crop((0, 0, w, int(600 * (h / 915))))
-
-                if not _is_blank_image(cropped):
-                    cropped.save(screenshot_path)
-                    result["screenshot_path"] = screenshot_path
-                else:
-                    logger.warning(f"Blank screenshot for {username}, skipping")
-            except Exception as e:
-                logger.error(f"Screenshot failed for {username}: {e}")
-            finally:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-
-            await browser.close()
+    service_url = config.screenshot_service_url
+    if not service_url:
+        logger.warning("No screenshot_service_url configured, skipping screenshot")
+        return result
 
     try:
-        asyncio.run(asyncio.wait_for(_capture(), timeout=30))
-    except asyncio.TimeoutError:
-        logger.warning(f"Screenshot capture timed out for {username} (30s)")
+        url = f"{service_url.rstrip('/')}/screenshot/{username}"
+        resp = _requests.get(url, timeout=30)
+
+        if resp.status_code == 200:
+            content_type = resp.headers.get("content-type", "")
+            if "image" in content_type or len(resp.content) > 1000:
+                date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                screenshot_dir = os.path.join(config.screenshots_dir, date_str)
+                os.makedirs(screenshot_dir, exist_ok=True)
+
+                ts = datetime.now(timezone.utc).strftime("%H%M%S")
+                filename = f"{username}_{status}_{ts}.png"
+                screenshot_path = os.path.join(screenshot_dir, filename)
+
+                with open(screenshot_path, "wb") as f:
+                    f.write(resp.content)
+
+                result["screenshot_path"] = screenshot_path
+                logger.info(f"Screenshot captured for {username} via service")
+            else:
+                logger.warning(f"Screenshot service returned non-image for {username}")
+        elif resp.status_code == 404:
+            logger.info(f"Screenshot service: profile unavailable for {username}")
+        else:
+            logger.warning(f"Screenshot service returned {resp.status_code} for {username}")
+
+    except _requests.exceptions.ConnectionError:
+        logger.error(f"Screenshot service unreachable at {service_url}")
+    except _requests.exceptions.Timeout:
+        logger.error(f"Screenshot service timed out for {username}")
     except Exception as e:
-        logger.error(f"Screenshot capture failed for {username}: {e}")
+        logger.error(f"Screenshot service error for {username}: {e}")
 
     return result
-
-
-async def _dismiss_popups(page):
-    for _ in range(3):
-        try:
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(300)
-        except Exception:
-            pass
-
-    close_selectors = [
-        'svg[aria-label="Close"]',
-        'div[role="button"] svg[aria-label="Close"]',
-        'button:has-text("Not Now")',
-        'button:has-text("Cancel")',
-        'button:has-text("OK")',
-        'button:has-text("Got it")',
-        'button:has-text("Allow")',
-        'button:has-text("Decline")',
-        'button:has-text("Turn Off")',
-        'button:has-text("Accept All")',
-        'button:has-text("Allow Essential")',
-        '[data-testid="cookie-banner"] button',
-    ]
-
-    for selector in close_selectors:
-        try:
-            btns = await page.query_selector_all(selector)
-            for btn in btns:
-                if await btn.is_visible():
-                    await btn.click()
-                    await page.wait_for_timeout(500)
-        except Exception:
-            continue
-
-    try:
-        dialog = await page.query_selector('div[role="dialog"]')
-        if dialog:
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(500)
-    except Exception:
-        pass
-
-
-async def _extract_profile_data_async(page) -> dict:
-    data = {}
-
-    # Try extracting from page's visible text first (more accurate)
-    try:
-        # Look for the stats section with follower/following/posts
-        stats_text = await page.evaluate("""() => {
-            // Try to find the header section with stats
-            const sections = document.querySelectorAll('section');
-            for (const section of sections) {
-                const text = section.innerText || '';
-                if (text.includes('follower') || text.includes('Following')) {
-                    return text;
-                }
-            }
-            // Fallback to main header area
-            const header = document.querySelector('header') || document.querySelector('main header');
-            if (header) {
-                return header.innerText || '';
-            }
-            return '';
-        }""")
-
-        if stats_text:
-            # Parse "X posts  Y followers  Z following" format
-            import re
-            posts_match = re.search(r'([\d,.]+[KMB]?)\s*posts?', stats_text, re.IGNORECASE)
-            followers_match = re.search(r'([\d,.]+[KMB]?)\s*followers?', stats_text, re.IGNORECASE)
-            following_match = re.search(r'([\d,.]+[KMB]?)\s*following', stats_text, re.IGNORECASE)
-
-            if posts_match:
-                data["posts"] = posts_match.group(1)
-            if followers_match:
-                data["followers"] = followers_match.group(1)
-            if following_match:
-                data["following"] = following_match.group(1)
-    except Exception:
-        pass
-
-    # Fallback to meta description if page extraction didn't work
-    if not data.get("followers"):
-        try:
-            meta_desc = await page.query_selector('meta[name="description"]')
-            if meta_desc:
-                content = await meta_desc.get_attribute("content") or ""
-                import re
-                followers_match = re.search(r"([\d,.]+[KMB]?) Followers", content)
-                following_match = re.search(r"([\d,.]+[KMB]?) Following", content)
-                posts_match = re.search(r"([\d,.]+[KMB]?) Posts", content)
-
-                if followers_match:
-                    data["followers"] = followers_match.group(1)
-                if following_match:
-                    data["following"] = following_match.group(1)
-                if posts_match:
-                    data["posts"] = posts_match.group(1)
-        except Exception:
-            pass
-
-    try:
-        bio_elem = await page.query_selector("section main header section div div span")
-        if bio_elem:
-            bio = await bio_elem.inner_text()
-            bio = bio.strip()
-            if bio and len(bio) < 200:
-                data["bio"] = bio
-    except Exception:
-        pass
-
-    return data
 
 
 def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
@@ -472,18 +292,9 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
             await browser.close()
 
     try:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                loop.run_in_executor(pool, lambda: asyncio.run(_check()))
-        else:
-            asyncio.run(_check())
-
+        asyncio.run(asyncio.wait_for(_check(), timeout=config.playwright.timeout / 1000))
+    except asyncio.TimeoutError:
+        logger.warning(f"Playwright check timed out for {username}")
     except Exception as e:
         latency_ms = (time.time() - start) * 1000
         result["latency_ms"] = latency_ms
