@@ -21,6 +21,8 @@ class Monitor:
         self.db = db
         self.notify_fn = notify_fn
         self.notify_photo_fn = notify_photo_fn
+        self.notify_to_chat_ids: Optional[Callable] = None
+        self.notify_photo_to_chat_ids: Optional[Callable] = None
         self.running = False
         self.start_time = None
         self._last_cleanup = time.time()
@@ -197,31 +199,43 @@ class Monitor:
                     duration, profile_data,
                 )
 
-                if screenshot_path and self.notify_photo_fn:
+                chat_ids = self.db.get_notification_chat_ids_for_account(account_id)
+                if not chat_ids:
+                    chat_ids = self.db.get_admin_chat_ids()
+
+                if screenshot_path and self.notify_photo_to_chat_ids:
+                    self.notify_photo_to_chat_ids(chat_ids, screenshot_path, caption)
+                elif screenshot_path and self.notify_photo_fn:
                     self.notify_photo_fn(screenshot_path, caption)
                 elif screenshot_error:
                     error_reasons = {
-                        "profile_unavailable": "Profile is deactivated or doesn't exist",
-                        "service_down": "Screenshot service is down (Camofox offline)",
+                        "profile_unavailable": "Profile deactivated or doesn't exist",
+                        "service_down": "SS service down (Camofox offline)",
                         "timeout": "Page load timed out",
-                        "rate_limited": "Screenshot service rate limited",
-                        "connection_refused": "Screenshot service unreachable",
+                        "rate_limited": "SS service rate limited",
+                        "connection_refused": "SS service unreachable",
                     }
                     reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
                     fallback = (
                         f"{caption}\n\n"
-                        f"⚠️ <b>{reason}</b>\n\n"
+                        f"⚠️ {reason}\n"
                         f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>"
                     )
-                    self.notify_fn(fallback)
+                    if self.notify_to_chat_ids:
+                        self.notify_to_chat_ids(chat_ids, fallback)
+                    else:
+                        self.notify_fn(fallback)
                 else:
-                    self.notify_fn(caption)
+                    if self.notify_to_chat_ids:
+                        self.notify_to_chat_ids(chat_ids, caption)
+                    else:
+                        self.notify_fn(caption)
 
                 self.db.conn.execute(
                     "UPDATE events SET notification_sent = 1 WHERE id = ?", (event_id,)
                 )
                 self.db.conn.commit()
-                logger.info(f"Notification sent for {username}")
+                logger.info(f"Notification sent for {username} to {len(chat_ids)} recipients")
             except Exception as e:
                 logger.error(f"Failed to send notification for {username}: {e}")
 
@@ -242,39 +256,41 @@ class Monitor:
 
         if new_status == "MISSING":
             alert = "🔴 ACCOUNT MISSING"
+            desc = "Account may be banned, deleted, or deactivated."
         elif new_status == "ACTIVE":
             alert = "🟢 ACCOUNT RESTORED"
+            desc = "Account is back online."
         else:
             alert = "⚠️ STATUS CHANGE"
+            desc = ""
 
         lines = [
             divider,
             "",
             alert,
             "",
-            f"<b>Username:</b>",
-            f"@{username}",
-            "",
-            f"<b>Status:</b>",
-            f"{old_status} → {new_status}",
+            f"{emoji} <b>@{username}</b>",
+            f"    {old_status} → {new_status}",
         ]
 
         if new_status == "ACTIVE" and profile_data:
+            stats = []
             if profile_data.get("followers"):
-                lines.append(f"<b>Followers:</b> {profile_data['followers']}")
+                stats.append(f"👥 {profile_data['followers']}")
             if profile_data.get("following"):
-                lines.append(f"<b>Following:</b> {profile_data['following']}")
+                stats.append(f"➡️ {profile_data['following']}")
             if profile_data.get("posts"):
-                lines.append(f"<b>Posts:</b> {profile_data['posts']}")
+                stats.append(f"📝 {profile_data['posts']}")
+            if stats:
+                lines.append(f"    {' · '.join(stats)}")
 
-        lines.extend([
-            "",
-            f"<b>⏱ Time Monitored:</b> {duration}",
-            "",
-            f"<b>✅ Verified</b>",
-            "",
-            divider,
-        ])
+        if duration and duration != "unknown":
+            lines.extend(["", f"⏱ Monitored for {duration}"])
+
+        if desc:
+            lines.extend(["", desc])
+
+        lines.extend(["", divider])
 
         return "\n".join(lines)
 

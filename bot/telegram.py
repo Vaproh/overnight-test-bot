@@ -1,4 +1,4 @@
-"""Telegram bot interface."""
+"""Telegram bot interface with per-user monitoring and scannable messages."""
 
 import logging
 import os
@@ -64,6 +64,46 @@ class TelegramBot:
             parse_mode="HTML",
         )
 
+    def _get_accounts_for_user(self, update: Update):
+        username = self._get_username(update)
+        if self.db.is_admin(username):
+            return self.db.get_all_accounts()
+        return self.db.get_accounts_for_non_admin(username)
+
+    def _fmt_time_ago(self, ts: Optional[str]) -> str:
+        if not ts:
+            return "never"
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            delta = datetime.now(timezone.utc) - dt
+            secs = int(delta.total_seconds())
+            if secs < 60:
+                return f"{secs}s ago"
+            if secs < 3600:
+                return f"{secs // 60}m ago"
+            if secs < 86400:
+                return f"{secs // 3600}h {(secs % 3600) // 60}m ago"
+            return f"{secs // 86400}d ago"
+        except Exception:
+            return "unknown"
+
+    def _fmt_duration(self, ts: Optional[str]) -> str:
+        if not ts:
+            return "unknown"
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            delta = datetime.now(timezone.utc) - dt
+            secs = int(delta.total_seconds())
+            if secs < 60:
+                return f"{secs}s"
+            if secs < 3600:
+                return f"{secs // 60}m"
+            if secs < 86400:
+                return f"{secs // 3600}h {(secs % 3600) // 60}m"
+            return f"{secs // 86400}d {(secs % 86400) // 3600}h"
+        except Exception:
+            return "unknown"
+
     def build(self) -> Application:
         self.app = Application.builder().token(self.config.telegram_token).build()
 
@@ -95,31 +135,33 @@ class TelegramBot:
 
     async def post_init(self, application: Application):
         commands = [
-            BotCommand("start", "📸 Start the bot"),
-            BotCommand("mainmenu", "📋 Main menu"),
-            BotCommand("help", "📖 Show available commands"),
-            BotCommand("status", "📡 All monitored accounts"),
-            BotCommand("add", "➕ Add account to monitor"),
-            BotCommand("remove", "➖ Remove account"),
-            BotCommand("check", "🔍 Manual check an account"),
-            BotCommand("test", "🧪 Test account (no monitor)"),
-            BotCommand("proxy", "📊 Proxy traffic stats"),
-            BotCommand("ping", "🏓 Check bot latency"),
-            BotCommand("health", "🏥 Bot health & uptime"),
-            BotCommand("setcookie", "🍪 Upload cookies (admin)"),
-            BotCommand("backup", "💾 Backup data (admin)"),
-            BotCommand("adduser", "👥 Allow user (admin)"),
-            BotCommand("removeuser", "👥⛔ Remove user (admin)"),
-            BotCommand("addadmin", "🔑 Add admin (admin)"),
-            BotCommand("removeadmin", "🔑⛔ Remove admin (admin)"),
-            BotCommand("listusers", "📋 List users (admin)"),
+            BotCommand("start", "Start the bot"),
+            BotCommand("mainmenu", "Main menu"),
+            BotCommand("help", "Show available commands"),
+            BotCommand("status", "All monitored accounts"),
+            BotCommand("add", "Add account to monitor"),
+            BotCommand("remove", "Remove account"),
+            BotCommand("check", "Manual check an account"),
+            BotCommand("test", "Test account (no monitor)"),
+            BotCommand("proxy", "Proxy traffic stats"),
+            BotCommand("ping", "Check bot latency"),
+            BotCommand("health", "Bot health & uptime"),
+            BotCommand("screenshot", "Screenshot service status"),
+            BotCommand("setcookie", "Upload cookies (admin)"),
+            BotCommand("backup", "Backup data (admin)"),
+            BotCommand("adduser", "Allow user (admin)"),
+            BotCommand("removeuser", "Remove user (admin)"),
+            BotCommand("addadmin", "Add admin (admin)"),
+            BotCommand("removeadmin", "Remove admin (admin)"),
+            BotCommand("listusers", "List users (admin)"),
+            BotCommand("changelog", "View updates"),
         ]
         await application.bot.set_my_commands(commands)
 
     def _build_main_menu(self, is_admin: bool) -> InlineKeyboardMarkup:
         rows = [
             [
-                InlineKeyboardButton("➕ Add Account", callback_data="menu:add"),
+                InlineKeyboardButton("➕ Add", callback_data="menu:add"),
                 InlineKeyboardButton("➖ Remove", callback_data="menu:remove"),
                 InlineKeyboardButton("🔍 Check", callback_data="menu:check"),
             ],
@@ -164,41 +206,64 @@ class TelegramBot:
 
         if data == "menu:add":
             await query.edit_message_text(
-                "📝 <b>Add Account</b>\n\nSend: <code>/add username</code>",
+                "➕ <b>Add Account</b>\n\n"
+                "Send: <code>/add username</code>",
                 parse_mode="HTML",
             )
         elif data == "menu:remove":
-            await query.edit_message_text(
-                "📝 <b>Remove Account</b>\n\nSend: <code>/remove username</code>",
-                parse_mode="HTML",
-            )
+            accounts = self._get_accounts_for_user(update)
+            if not accounts:
+                await query.edit_message_text(
+                    "📭 <b>Nothing to remove</b>",
+                    parse_mode="HTML",
+                )
+                return
+            lines = ["➖ <b>Send /remove username</b>\n"]
+            for a in accounts:
+                emoji = STATUS_EMOJI.get(a["status"], "⚪")
+                lines.append(f"{emoji} @{a['username']}")
+            await query.edit_message_text("\n".join(lines), parse_mode="HTML")
         elif data == "menu:check":
-            await query.edit_message_text(
-                "🔍 <b>Check Account</b>\n\nSend: <code>/check username</code>",
-                parse_mode="HTML",
-            )
+            accounts = self._get_accounts_for_user(update)
+            if not accounts:
+                await query.edit_message_text(
+                    "📭 <b>No accounts to check</b>",
+                    parse_mode="HTML",
+                )
+                return
+            lines = ["🔍 <b>Send /check username</b>\n"]
+            for a in accounts:
+                emoji = STATUS_EMOJI.get(a["status"], "⚪")
+                lines.append(f"{emoji} @{a['username']}")
+            await query.edit_message_text("\n".join(lines), parse_mode="HTML")
         elif data == "menu:test":
             await query.edit_message_text(
-                "🧪 <b>Test Account</b>\n\nSend: <code>/test username</code>",
+                "🧪 <b>Test Account</b>\n\n"
+                "Send: <code>/test username</code>\n\n"
+                "Checks status without adding to monitor.",
                 parse_mode="HTML",
             )
         elif data == "menu:status":
-            await self._handle_status_callback(query)
+            await self._handle_status_callback(query, update)
         elif data == "menu:proxy":
             await self._handle_proxy_callback(query)
         elif data == "menu:ping":
+            accounts = self._get_accounts_for_user(update)
             msg_text = (
-                f"🏓 <b>Pong!</b>\n"
-                f"📡 Monitoring: {len(self.db.get_all_accounts())} accounts\n"
+                f"🏓 <b>Pong!</b>\n\n"
+                f"📡 {len(accounts)} accounts monitored\n"
                 f"⏱ Uptime: {self.monitor.get_uptime()}"
             )
             await query.edit_message_text(msg_text, parse_mode="HTML")
         elif data == "menu:health":
-            accounts = self.db.get_all_accounts()
+            accounts = self._get_accounts_for_user(update)
+            active = sum(1 for a in accounts if a["status"] == "ACTIVE")
+            missing = sum(1 for a in accounts if a["status"] == "MISSING")
+            other = len(accounts) - active - missing
             await query.edit_message_text(
-                f"🏥 <b>Health Report</b>\n\n"
+                f"🏥 <b>Health</b>\n\n"
                 f"⏱ Uptime: {self.monitor.get_uptime()}\n"
-                f"📡 Accounts: {len(accounts)}",
+                f"🟢 {active} active · 🔴 {missing} missing · ⚪ {other} other",
                 parse_mode="HTML",
             )
         elif data == "menu:screenshot":
@@ -208,7 +273,7 @@ class TelegramBot:
                 await query.edit_message_text("⛔ Admin only.", parse_mode="HTML")
                 return
             await query.edit_message_text(
-                "📝 <b>Add User</b>\n\nSend: <code>/adduser username</code>",
+                "👥 <b>Add User</b>\n\nSend: <code>/adduser username</code>",
                 parse_mode="HTML",
             )
         elif data == "menu:removeuser":
@@ -216,7 +281,7 @@ class TelegramBot:
                 await query.edit_message_text("⛔ Admin only.", parse_mode="HTML")
                 return
             await query.edit_message_text(
-                "📝 <b>Remove User</b>\n\nSend: <code>/removeuser username</code>",
+                "👥 <b>Remove User</b>\n\nSend: <code>/removeuser username</code>",
                 parse_mode="HTML",
             )
         elif data == "menu:setcookie":
@@ -224,7 +289,8 @@ class TelegramBot:
                 await query.edit_message_text("⛔ Admin only.", parse_mode="HTML")
                 return
             await query.edit_message_text(
-                "🍪 <b>Upload Cookies</b>\n\nSend a file named <code>cookies.txt</code> with /setcookie",
+                "🔑 <b>Upload Cookies</b>\n\n"
+                "Send a file named <code>cookies.txt</code> with /setcookie",
                 parse_mode="HTML",
             )
         elif data == "menu:changelog":
@@ -235,7 +301,7 @@ class TelegramBot:
                     parse_mode="HTML",
                 )
                 return
-            lines = ["📋 <b>Recent Changelogs</b>\n━━━━━━━━━━━━━━━━━━━"]
+            lines = ["📋 <b>Recent Updates</b>\n━━━━━━━━━━━━━━━━━━━"]
             for cl in changelogs:
                 try:
                     dt = datetime.fromisoformat(cl["created_at"].replace("Z", "+00:00"))
@@ -243,8 +309,7 @@ class TelegramBot:
                 except Exception:
                     time_str = cl["created_at"][:16]
                 lines.append(f"\n<b>{time_str}</b> — @{cl['author']}\n{cl['message']}")
-            lines.append("\n━━━━━━━━━━━━━━━━━━━")
-            lines.append("💡 <code>/changelog add &lt;msg&gt;</code> — Admin only")
+            lines.append("\n💡 <code>/changelog add &lt;msg&gt;</code> — Admin only")
             await query.edit_message_text("\n".join(lines), parse_mode="HTML")
         elif data == "menu:backup":
             if not is_admin:
@@ -253,26 +318,35 @@ class TelegramBot:
             await query.edit_message_text("💾 Creating backup...", parse_mode="HTML")
             await self._do_backup(query.message, update)
 
-    async def _handle_status_callback(self, query):
-        accounts = self.db.get_all_accounts()
+    async def _handle_status_callback(self, query, update):
+        accounts = self._get_accounts_for_user(update)
         if not accounts:
             await query.edit_message_text(
-                "📡 <b>Status</b>\n\nNo accounts monitored.\nUse /add to add one.",
+                "📭 <b>No accounts monitored</b>\n\nUse /add to add one.",
                 parse_mode="HTML",
             )
             return
-        lines = ["📡 <b>All Monitored Accounts</b>\n"]
+
+        active = sum(1 for a in accounts if a["status"] == "ACTIVE")
+        missing = sum(1 for a in accounts if a["status"] == "MISSING")
+        suspect = sum(1 for a in accounts if a["status"] == "SUSPECT")
+        other = len(accounts) - active - missing - suspect
+
+        lines = [
+            f"📡 <b>{len(accounts)} Accounts Monitored</b>",
+            f"🟢 {active} active · 🔴 {missing} missing · 🟡 {suspect} suspect · ⚪ {other} other",
+            "━━━━━━━━━━━━━━━━━━━",
+            "",
+        ]
         for a in accounts:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
-            last = a.get("last_check") or "never"
-            if last != "never":
-                try:
-                    dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
-                    last = dt.strftime("%H:%M UTC")
-                except Exception:
-                    pass
-            lines.append(f"{emoji} @{a['username']} — {a['status']} (last: {last})")
-        await query.edit_message_text("\n".join(lines), parse_mode="HTML")
+            last = self._fmt_time_ago(a.get("last_check"))
+            count = a.get("check_count", 0)
+            lines.append(f"{emoji} <b>@{a['username']}</b>")
+            lines.append(f"    {a['status']} · checked {last} · {count}x")
+            lines.append("")
+
+        await query.edit_message_text("\n".join(lines).rstrip(), parse_mode="HTML")
 
     async def _handle_proxy_callback(self, query):
         if not self.config.proxy.enabled:
@@ -308,13 +382,13 @@ class TelegramBot:
             cost = (used / 1073741824) * 1.2
 
             text = (
-                "📊 <b>Proxy Stats</b>\n\n"
+                "📊 <b>Proxy Stats</b>\n"
+                "━━━━━━━━━━━━━━━━━━━\n\n"
                 f"📦 Total: {fmt(total)}\n"
                 f"📤 Used: {fmt(used)} ({pct:.1f}%)\n"
-                f"📥 Remaining: {fmt(left)}\n\n"
+                f"📥 Left: {fmt(left)}\n\n"
                 f"<code>[{bar}]</code> {pct:.1f}%\n\n"
-                f"💰 Rate: $1.2/GB\n"
-                f"💸 Cost: ${cost:.2f}"
+                f"💰 ${cost:.2f} used @ $1.2/GB"
             )
             await query.edit_message_text(text, parse_mode="HTML")
         except Exception as e:
@@ -341,26 +415,26 @@ class TelegramBot:
                 emoji = "🟢" if camofox else "🔴"
                 camofox_text = "Online" if camofox else "Offline"
                 await query.edit_message_text(
-                    f"📸 <b>Screenshot Service</b>\n\n"
-                    f"{emoji} <b>Status:</b> {status}\n"
-                    f"🦊 <b>Camofox:</b> {camofox_text}\n"
-                    f"🔗 <code>{service_url}</code>\n"
-                    f"⚡ Latency: {latency:.0f}ms",
+                    f"📸 <b>Screenshot Service</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"{emoji} {status} · Camofox: {camofox_text}\n"
+                    f"⚡ {latency:.0f}ms\n"
+                    f"🔗 <code>{service_url}</code>",
                     parse_mode="HTML",
                 )
             else:
                 await query.edit_message_text(
-                    f"🔴 <b>Screenshot Service Unhealthy</b>\n\nHTTP {resp.status_code}\n<code>{service_url}</code>",
+                    f"🔴 <b>SS Service Unhealthy</b>\n\nHTTP {resp.status_code}",
                     parse_mode="HTML",
                 )
         except _requests.exceptions.ConnectionError:
             await query.edit_message_text(
-                f"🔴 <b>Screenshot Service Offline</b>\n\n<code>{service_url}</code>",
+                f"🔴 <b>SS Service Offline</b>\n\n<code>{service_url}</code>",
                 parse_mode="HTML",
             )
         except _requests.exceptions.Timeout:
             await query.edit_message_text(
-                f"🔴 <b>Screenshot Service Timeout</b>\n\n<code>{service_url}</code>",
+                f"🔴 <b>SS Service Timeout</b>\n\n<code>{service_url}</code>",
                 parse_mode="HTML",
             )
         except Exception as e:
@@ -369,22 +443,27 @@ class TelegramBot:
                 parse_mode="HTML",
             )
 
+    # ── Commands ───────────────────────────────────────────────
+
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
             await self._deny(update)
             return
 
+        accounts = self._get_accounts_for_user(update)
+        active = sum(1 for a in accounts if a["status"] == "ACTIVE")
+        missing = sum(1 for a in accounts if a["status"] == "MISSING")
+
         text = (
-            "📸 <b>Instagram Monitor Bot</b>\n"
+            "📸 <b>Instagram Monitor</b>\n"
             "━━━━━━━━━━━━━━━━━━━\n\n"
-            "Monitors Instagram accounts for visibility changes.\n\n"
-            "<b>How to use:</b>\n"
-            "• /add username — Start monitoring\n"
-            "• /remove username — Stop monitoring\n"
-            "• /status — View all monitored accounts\n"
-            "• /test username — Test without monitoring\n"
-            "• /mainmenu — Open main menu\n\n"
-            "<b>Need help?</b> /help\n"
+            f"📡 {len(accounts)} accounts · "
+            f"🟢 {active} active · 🔴 {missing} missing\n\n"
+            "• /add <code>username</code> — start monitoring\n"
+            "• /remove <code>username</code> — stop monitoring\n"
+            "• /status — view all accounts\n"
+            "• /test <code>username</code> — test without monitoring\n"
+            "• /mainmenu — menu with buttons\n"
             "━━━━━━━━━━━━━━━━━━━"
         )
         kb = self._build_main_menu(self._is_admin(update))
@@ -410,21 +489,18 @@ class TelegramBot:
         text = (
             "📖 <b>Commands</b>\n"
             "━━━━━━━━━━━━━━━━━━━\n\n"
-            "📸 /start — Start the bot\n"
-            "📋 /mainmenu — Main menu\n"
-            "📖 /help — Show this message\n"
-            "🏥 /health — Bot status & uptime\n"
-            "📡 /status — All monitored accounts\n"
-            "📡 /accounts — List monitored accounts\n"
-            "➕ /add <code>username</code> — Add an account\n"
-            "➖ /remove <code>username</code> — Remove an account\n"
-            "🔍 /check <code>username</code> — Manual check\n"
-            "🧪 /test <code>username</code> — Test account (no monitor)\n"
-            "🏓 /ping — Check bot latency\n"
-            "📸 /screenshot — Screenshot service status\n"
-            "📊 /proxy — Proxy traffic stats\n"
-            "📋 /changelog — View updates\n"
-            "📋 /changelog add <code>msg</code> — Admin only"
+            "➕ /add <code>username</code> — monitor account\n"
+            "➖ /remove <code>username</code> — stop monitoring\n"
+            "📡 /status — all monitored accounts\n"
+            "🔍 /check <code>username</code> — manual check\n"
+            "🧪 /test <code>username</code> — test (no monitor)\n"
+            "📸 /screenshot — SS service status\n"
+            "📊 /proxy — proxy traffic\n"
+            "🏓 /ping — bot latency\n"
+            "🏥 /health — bot status\n"
+            "📋 /changelog — view updates\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "🔑 Admins can manage users & cookies"
         )
         await update.message.reply_text(text, parse_mode="HTML")
 
@@ -433,32 +509,25 @@ class TelegramBot:
             await self._deny(update)
             return
 
-        accounts = self.db.get_all_accounts()
-        recent_checks = self.db.get_recent_checks(limit=5)
-        recent_events = self.db.get_recent_events(limit=5)
+        accounts = self._get_accounts_for_user(update)
+        active = sum(1 for a in accounts if a["status"] == "ACTIVE")
+        missing = sum(1 for a in accounts if a["status"] == "MISSING")
+        suspect = sum(1 for a in accounts if a["status"] == "SUSPECT")
+        other = len(accounts) - active - missing - suspect
+
+        recent_checks = self.db.get_recent_checks(limit=3)
 
         lines = [
-            "🏥 <b>Health Report</b>",
-            "━━━━━━━━━━━━━━━━━━━",
-            "",
-            f"⏱ <b>Uptime:</b> {self.monitor.get_uptime()}",
-            f"📡 <b>Accounts:</b> {len(accounts)}",
+            "🏥 <b>Health</b>\n━━━━━━━━━━━━━━━━━━━\n",
+            f"⏱ Uptime: {self.monitor.get_uptime()}",
+            f"📡 {len(accounts)} accounts · 🟢 {active} · 🔴 {missing} · 🟡 {suspect} · ⚪ {other}",
         ]
 
         if recent_checks:
-            lines.append("")
-            lines.append("📋 <b>Recent Checks:</b>")
-            for c in recent_checks[:5]:
+            lines.append("\n<b>Last checks:</b>")
+            for c in recent_checks:
                 emoji = STATUS_EMOJI.get(c["status"], "⚪")
-                lines.append(f"  {emoji} @{c['username']} — {c['status']} ({c['latency_ms']:.0f}ms)")
-
-        if recent_events:
-            lines.append("")
-            lines.append("🔔 <b>Recent Events:</b>")
-            for e in recent_events[:5]:
-                old_e = STATUS_EMOJI.get(e["old_status"], "⚪")
-                new_e = STATUS_EMOJI.get(e["new_status"], "⚪")
-                lines.append(f"  {old_e}→{new_e} @{e['username']}")
+                lines.append(f"  {emoji} @{c['username']} {c['status']} ({c['latency_ms']:.0f}ms)")
 
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
@@ -467,7 +536,7 @@ class TelegramBot:
             await self._deny(update)
             return
 
-        accounts = self.db.get_all_accounts()
+        accounts = self._get_accounts_for_user(update)
         if not accounts:
             await update.message.reply_text(
                 "📭 <b>No accounts monitored</b>\n\nUse /add <code>username</code> to add one.",
@@ -475,14 +544,18 @@ class TelegramBot:
             )
             return
 
+        active = sum(1 for a in accounts if a["status"] == "ACTIVE")
+        missing = sum(1 for a in accounts if a["status"] == "MISSING")
+
         lines = [
-            "📡 <b>Monitored Accounts</b>",
-            "━━━━━━━━━━━━━━━━━━━",
-            "",
+            f"📡 <b>{len(accounts)} Accounts</b>",
+            f"🟢 {active} active · 🔴 {missing} missing",
+            "━━━━━━━━━━━━━━━━━━━\n",
         ]
         for a in accounts:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
-            lines.append(f"{emoji} @{a['username']}")
+            last = self._fmt_time_ago(a.get("last_check"))
+            lines.append(f"{emoji} @{a['username']}  ·  {last}")
 
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
@@ -491,28 +564,33 @@ class TelegramBot:
             await self._deny(update)
             return
 
-        accounts = self.db.get_all_accounts()
+        accounts = self._get_accounts_for_user(update)
         if not accounts:
             await update.message.reply_text(
-                "📡 <b>Status</b>\n\nNo accounts monitored.\nUse /add to add one.",
+                "📭 <b>No accounts monitored</b>\n\nUse /add <code>username</code> to add one.",
                 parse_mode="HTML",
             )
             return
 
-        lines = ["📡 <b>All Monitored Accounts</b>", "━━━━━━━━━━━━━━━━━━━", ""]
+        active = sum(1 for a in accounts if a["status"] == "ACTIVE")
+        missing = sum(1 for a in accounts if a["status"] == "MISSING")
+        suspect = sum(1 for a in accounts if a["status"] == "SUSPECT")
+        other = len(accounts) - active - missing - suspect
+
+        lines = [
+            f"📡 <b>{len(accounts)} Accounts Monitored</b>",
+            f"🟢 {active} active · 🔴 {missing} missing · 🟡 {suspect} suspect · ⚪ {other} other",
+            "━━━━━━━━━━━━━━━━━━━\n",
+        ]
         for a in accounts:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
-            last = a.get("last_check") or "never"
-            if last != "never":
-                try:
-                    dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
-                    last = dt.strftime("%H:%M UTC")
-                except Exception:
-                    pass
+            last = self._fmt_time_ago(a.get("last_check"))
             count = a.get("check_count", 0)
-            lines.append(f"{emoji} @{a['username']} — {a['status']} (last: {last}, checks: {count})")
+            lines.append(f"{emoji} <b>@{a['username']}</b>")
+            lines.append(f"    {a['status']} · checked {last} · {count}x")
+            lines.append("")
 
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        await update.message.reply_text("\n".join(lines).rstrip(), parse_mode="HTML")
 
     async def cmd_add(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
@@ -521,40 +599,58 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /add <code>username</code>",
+                "➕ <b>Usage:</b> /add <code>username</code>",
                 parse_mode="HTML",
             )
             return
 
         username = context.args[0].lstrip("@")
+        added_by = self._get_username(update)
+        is_admin = self.db.is_admin(added_by)
+
         existing = self.db.get_account_status(username)
         if existing is not None:
-            await update.message.reply_text(
-                f"⚠️ @{username} is already being monitored.",
-                parse_mode="HTML",
-            )
-            return
+            existing_owner = self.db.get_account_added_by(username)
+            if existing_owner and existing_owner != added_by and not is_admin:
+                await update.message.reply_text(
+                    f"🔒 <b>@{username}</b> is already monitored by @{existing_owner}.\n\n"
+                    f"Ask an admin to reassign it.",
+                    parse_mode="HTML",
+                )
+                return
+            else:
+                await update.message.reply_text(
+                    f"🔄 <b>@{username}</b> already monitored — rechecking...",
+                    parse_mode="HTML",
+                )
+                await self._do_check_and_reply(update, username)
+                return
 
-        self.db.get_or_create_account(username)
+        self.db.get_or_create_account(username, added_by)
         status_msg = await update.message.reply_text(
-            f"✅ <b>@{username}</b> added.\n🔍 Checking status...",
+            f"✅ <b>@{username}</b> added to your monitor\n🔍 Checking status...",
             parse_mode="HTML",
         )
 
+        await self._do_check_and_reply(update, username, status_msg)
+
+    async def _do_check_and_reply(self, update: Update, username: str, status_msg=None):
         try:
             from .checker import check_account, capture_profile_screenshot
 
             result = check_account(username, self.config)
             status = result["classification"]
+            emoji = STATUS_EMOJI.get(status, "⚪")
 
             profile_data = {}
             screenshot_path = None
             screenshot_error = None
             if status == "ACTIVE":
-                await status_msg.edit_text(
-                    f"✅ <b>@{username}</b> added.\n📸 Grabbing screenshot...",
-                    parse_mode="HTML",
-                )
+                if status_msg:
+                    await status_msg.edit_text(
+                        f"{emoji} <b>@{username}</b> — {status}\n📸 Capturing screenshot...",
+                        parse_mode="HTML",
+                    )
                 import asyncio as _asyncio
                 loop = _asyncio.get_running_loop()
                 screenshot_data = await loop.run_in_executor(
@@ -564,27 +660,7 @@ class TelegramBot:
                 profile_data = screenshot_data.get("profile_data", {})
                 screenshot_error = screenshot_data.get("error")
 
-            emoji = STATUS_EMOJI.get(status, "⚪")
-            divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
-
-            lines = [
-                divider,
-                "",
-                f"{emoji} @{username}",
-                "",
-                f"<b>Status:</b> {status}",
-            ]
-
-            if status == "ACTIVE" and profile_data:
-                if profile_data.get("followers"):
-                    lines.append(f"<b>Followers:</b> {profile_data['followers']}")
-                if profile_data.get("following"):
-                    lines.append(f"<b>Following:</b> {profile_data['following']}")
-                if profile_data.get("posts"):
-                    lines.append(f"<b>Posts:</b> {profile_data['posts']}")
-
-            lines.extend(["", divider])
-            caption = "\n".join(lines)
+            caption = self._format_profile_card(username, status, profile_data)
 
             if screenshot_path and os.path.exists(screenshot_path):
                 with open(screenshot_path, "rb") as f:
@@ -593,30 +669,66 @@ class TelegramBot:
                         caption=caption,
                         parse_mode="HTML",
                     )
-                await status_msg.delete()
+                if status_msg:
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
             elif status == "ACTIVE" and screenshot_error:
                 error_reasons = {
-                    "profile_unavailable": "Profile is deactivated or doesn't exist",
-                    "service_down": "Screenshot service is down (Camofox offline)",
+                    "profile_unavailable": "Profile deactivated or doesn't exist",
+                    "service_down": "SS service down (Camofox offline)",
                     "timeout": "Page load timed out",
-                    "rate_limited": "Screenshot service rate limited",
-                    "connection_refused": "Screenshot service unreachable",
-                    "invalid_username": "Invalid username format",
+                    "rate_limited": "SS service rate limited",
+                    "connection_refused": "SS service unreachable",
+                    "invalid_username": "Invalid username",
                 }
                 reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
                 fallback = (
                     f"{caption}\n\n"
-                    f"⚠️ <b>{reason}</b>\n\n"
+                    f"⚠️ {reason}\n"
                     f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>"
                 )
-                await status_msg.edit_text(fallback, parse_mode="HTML")
+                if status_msg:
+                    await status_msg.edit_text(fallback, parse_mode="HTML")
+                else:
+                    await update.message.reply_text(fallback, parse_mode="HTML")
             else:
-                await status_msg.edit_text(caption, parse_mode="HTML")
+                if status_msg:
+                    await status_msg.edit_text(caption, parse_mode="HTML")
+                else:
+                    await update.message.reply_text(caption, parse_mode="HTML")
         except Exception as e:
-            await status_msg.edit_text(
-                f"⚠️ Added but check failed:\n<code>{e}</code>",
-                parse_mode="HTML",
-            )
+            text = f"⚠️ Check failed: <code>{e}</code>"
+            if status_msg:
+                await status_msg.edit_text(text, parse_mode="HTML")
+            else:
+                await update.message.reply_text(text, parse_mode="HTML")
+
+    def _format_profile_card(self, username: str, status: str, profile_data: dict = None) -> str:
+        emoji = STATUS_EMOJI.get(status, "⚪")
+        divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
+
+        lines = [
+            divider,
+            "",
+            f"{emoji} <b>@{username}</b>",
+            f"    {status}",
+        ]
+
+        if profile_data:
+            stats = []
+            if profile_data.get("followers"):
+                stats.append(f"👥 {profile_data['followers']}")
+            if profile_data.get("following"):
+                stats.append(f"➡️ {profile_data['following']}")
+            if profile_data.get("posts"):
+                stats.append(f"📝 {profile_data['posts']}")
+            if stats:
+                lines.append(f"    {' · '.join(stats)}")
+
+        lines.extend(["", divider])
+        return "\n".join(lines)
 
     async def cmd_remove(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
@@ -625,16 +737,28 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /remove <code>username</code>",
+                "➖ <b>Usage:</b> /remove <code>username</code>",
                 parse_mode="HTML",
             )
             return
 
         username = context.args[0].lstrip("@")
+        added_by = self._get_username(update)
+        is_admin = self.db.is_admin(added_by)
+
+        existing_owner = self.db.get_account_added_by(username)
+        if existing_owner and existing_owner != added_by and not is_admin:
+            await update.message.reply_text(
+                f"🔒 <b>@{username}</b> is monitored by @{existing_owner}.\n"
+                f"Ask an admin to remove it.",
+                parse_mode="HTML",
+            )
+            return
+
         existing = self.db.get_account_status(username)
         if existing is None:
             await update.message.reply_text(
-                f"❌ @{username} is not being monitored.",
+                f"❌ <b>@{username}</b> is not being monitored.",
                 parse_mode="HTML",
             )
             return
@@ -652,13 +776,16 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /check <code>username</code>",
+                "🔍 <b>Usage:</b> /check <code>username</code>",
                 parse_mode="HTML",
             )
             return
 
         username = context.args[0].lstrip("@")
-        await update.message.reply_text(f"🔍 Checking @{username}...")
+        status_msg = await update.message.reply_text(
+            f"🔍 <b>Checking @{username}...</b>",
+            parse_mode="HTML",
+        )
 
         try:
             result = self.monitor.check_single(username)
@@ -666,16 +793,17 @@ class TelegramBot:
             transition = "⚡ Yes" if result["transition"] else "— No"
 
             text = (
-                f"📸 <b>@{username}</b>\n"
+                f"🔍 <b>@{username}</b>\n"
                 "━━━━━━━━━━━━━━━━━━━\n\n"
-                f"{emoji} <b>Status:</b> {result['status']}\n"
-                f"📊 <b>Previous:</b> {result.get('old_status', 'N/A')}\n"
-                f"⚡ <b>Transition:</b> {transition}"
+                f"{emoji} <b>{result['status']}</b>\n"
+                f"Previous: {result.get('old_status', 'N/A')}\n"
+                f"Transition: {transition}\n"
+                f"Latency: {result.get('latency_ms', 0):.0f}ms"
             )
-            await update.message.reply_text(text, parse_mode="HTML")
+            await status_msg.edit_text(text, parse_mode="HTML")
         except Exception as e:
-            await update.message.reply_text(
-                f"❌ Error checking @{username}:\n<code>{e}</code>",
+            await status_msg.edit_text(
+                f"❌ Check failed: <code>{e}</code>",
                 parse_mode="HTML",
             )
 
@@ -686,25 +814,33 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /test <code>username</code>",
+                "🧪 <b>Usage:</b> /test <code>username</code>\n\n"
+                "Checks status without adding to monitor.",
                 parse_mode="HTML",
             )
             return
 
         username = context.args[0].lstrip("@")
-        status_msg = await update.message.reply_text(f"🧪 Testing @{username}...")
+        status_msg = await update.message.reply_text(
+            f"🧪 <b>Testing @{username}...</b>",
+            parse_mode="HTML",
+        )
 
         try:
             from .checker import check_account, capture_profile_screenshot
 
             result = check_account(username, self.config)
-            emoji = STATUS_EMOJI.get(result["classification"], "⚪")
+            status = result["classification"]
+            emoji = STATUS_EMOJI.get(status, "⚪")
 
             profile_data = {}
             screenshot_path = None
             screenshot_error = None
-            if result["classification"] == "ACTIVE":
-                await status_msg.edit_text(f"🧪 Testing @{username}...\n📸 Grabbing screenshot...")
+            if status == "ACTIVE":
+                await status_msg.edit_text(
+                    f"🧪 <b>@{username}</b> — {status}\n📸 Capturing screenshot...",
+                    parse_mode="HTML",
+                )
                 import asyncio as _asyncio
                 loop = _asyncio.get_running_loop()
                 screenshot_data = await loop.run_in_executor(
@@ -714,22 +850,29 @@ class TelegramBot:
                 profile_data = screenshot_data.get("profile_data", {})
                 screenshot_error = screenshot_data.get("error")
 
-            caption = (
-                f"🧪 <b>Test Result</b>\n"
-                "━━━━━━━━━━━━━━━━━━━\n\n"
-                f"📸 <b>@{username}</b>\n\n"
-                f"{emoji} <b>Status:</b> {result['classification']}\n"
-                f"🏎 <b>Latency:</b> {result.get('latency_ms', 0):.0f}ms\n"
-                f"🔢 <b>HTTP:</b> {result.get('status_code', 'N/A')}"
-            )
+            divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
+            lines = [
+                divider,
+                "",
+                f"🧪 <b>Test Result</b>",
+                "",
+                f"{emoji} <b>@{username}</b> — {status}",
+                f"🏎 {result.get('latency_ms', 0):.0f}ms · HTTP {result.get('status_code', 'N/A')}",
+            ]
 
             if profile_data:
+                stats = []
                 if profile_data.get("followers"):
-                    caption += f"\n👥 <b>Followers:</b> {profile_data['followers']}"
+                    stats.append(f"👥 {profile_data['followers']}")
                 if profile_data.get("following"):
-                    caption += f"\n➡️ <b>Following:</b> {profile_data['following']}"
+                    stats.append(f"➡️ {profile_data['following']}")
                 if profile_data.get("posts"):
-                    caption += f"\n📝 <b>Posts:</b> {profile_data['posts']}"
+                    stats.append(f"📝 {profile_data['posts']}")
+                if stats:
+                    lines.append(f"📊 {' · '.join(stats)}")
+
+            lines.extend(["", divider])
+            caption = "\n".join(lines)
 
             if screenshot_path and os.path.exists(screenshot_path):
                 with open(screenshot_path, "rb") as f:
@@ -739,19 +882,19 @@ class TelegramBot:
                         parse_mode="HTML",
                     )
                 await status_msg.delete()
-            elif result["classification"] == "ACTIVE" and screenshot_error:
+            elif status == "ACTIVE" and screenshot_error:
                 error_reasons = {
-                    "profile_unavailable": "Profile is deactivated or doesn't exist",
-                    "service_down": "Screenshot service is down (Camofox offline)",
+                    "profile_unavailable": "Profile deactivated or doesn't exist",
+                    "service_down": "SS service down (Camofox offline)",
                     "timeout": "Page load timed out",
-                    "rate_limited": "Screenshot service rate limited",
-                    "connection_refused": "Screenshot service unreachable",
-                    "invalid_username": "Invalid username format",
+                    "rate_limited": "SS service rate limited",
+                    "connection_refused": "SS service unreachable",
+                    "invalid_username": "Invalid username",
                 }
                 reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
                 fallback = (
                     f"{caption}\n\n"
-                    f"⚠️ <b>{reason}</b>\n\n"
+                    f"⚠️ {reason}\n"
                     f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>"
                 )
                 await status_msg.edit_text(fallback, parse_mode="HTML")
@@ -759,7 +902,7 @@ class TelegramBot:
                 await status_msg.edit_text(caption, parse_mode="HTML")
         except Exception as e:
             await status_msg.edit_text(
-                f"❌ Error testing @{username}:\n<code>{e}</code>",
+                f"❌ Test failed: <code>{e}</code>",
                 parse_mode="HTML",
             )
 
@@ -769,16 +912,14 @@ class TelegramBot:
             return
 
         start = _time.time()
-        msg = await update.message.reply_text("🏓 Pinging...")
+        msg = await update.message.reply_text("🏓 ...")
         latency = (_time.time() - start) * 1000
 
+        accounts = self._get_accounts_for_user(update)
         await msg.edit_text(
-            f"🏓 <b>Pong!</b>\n"
-            "━━━━━━━━━━━━━━━━━━━\n\n"
-            f"⚡ <b>Bot Latency:</b> {latency:.0f}ms\n"
-            f"🟢 <b>Status:</b> Online\n"
-            f"📡 <b>Monitoring:</b> {len(self.db.get_all_accounts())} accounts\n"
-            f"⏱ <b>Uptime:</b> {self.monitor.get_uptime()}",
+            f"🏓 <b>Pong!</b>\n\n"
+            f"⚡ Latency: {latency:.0f}ms\n"
+            f"📡 {len(accounts)} accounts · ⏱ {self.monitor.get_uptime()}",
             parse_mode="HTML",
         )
 
@@ -790,13 +931,13 @@ class TelegramBot:
         service_url = self.config.screenshot_service_url
         if not service_url:
             await update.message.reply_text(
-                "⚠️ <b>Screenshot service not configured</b>\n\n"
+                "⚠️ <b>SS Service not configured</b>\n\n"
                 "Set <code>screenshot_service_url</code> in config.yaml",
                 parse_mode="HTML",
             )
             return
 
-        msg = await update.message.reply_text("📸 Checking screenshot service...")
+        msg = await update.message.reply_text("📸 Checking SS service...")
 
         try:
             import requests as _requests
@@ -811,38 +952,31 @@ class TelegramBot:
                 emoji = "🟢" if camofox else "🔴"
                 camofox_text = "Online" if camofox else "Offline"
                 await msg.edit_text(
-                    f"📸 <b>Screenshot Service</b>\n"
+                    f"📸 <b>SS Service</b>\n"
                     "━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"{emoji} <b>Status:</b> {status}\n"
-                    f"🦊 <b>Camofox:</b> {camofox_text}\n"
-                    f"🔗 <b>URL:</b> <code>{service_url}</code>\n"
-                    f"⚡ <b>Latency:</b> {latency:.0f}ms",
+                    f"{emoji} {status} · Camofox: {camofox_text}\n"
+                    f"⚡ {latency:.0f}ms\n"
+                    f"🔗 <code>{service_url}</code>",
                     parse_mode="HTML",
                 )
             else:
                 await msg.edit_text(
-                    f"🔴 <b>Screenshot Service Unhealthy</b>\n\n"
-                    f"HTTP {resp.status_code}\n"
-                    f"🔗 <code>{service_url}</code>",
+                    f"🔴 <b>SS Unhealthy</b>\n\nHTTP {resp.status_code}",
                     parse_mode="HTML",
                 )
         except _requests.exceptions.ConnectionError:
             await msg.edit_text(
-                f"🔴 <b>Screenshot Service Offline</b>\n\n"
-                f"Cannot connect to <code>{service_url}</code>\n"
-                f"Make sure the service is running.",
+                f"🔴 <b>SS Offline</b>\n\n<code>{service_url}</code>",
                 parse_mode="HTML",
             )
         except _requests.exceptions.Timeout:
             await msg.edit_text(
-                f"🔴 <b>Screenshot Service Timeout</b>\n\n"
-                f"Service at <code>{service_url}</code> did not respond in 5s",
+                f"🔴 <b>SS Timeout</b>\n\n<code>{service_url}</code>",
                 parse_mode="HTML",
             )
         except Exception as e:
             await msg.edit_text(
-                f"🔴 <b>Screenshot Service Error</b>\n\n"
-                f"<code>{e}</code>",
+                f"🔴 <b>Error:</b> <code>{e}</code>",
                 parse_mode="HTML",
             )
 
@@ -853,12 +987,12 @@ class TelegramBot:
 
         if not self.config.proxy.enabled:
             await update.message.reply_text(
-                "⚠️ Proxy is not enabled in config.",
+                "⚠️ Proxy is not enabled.",
                 parse_mode="HTML",
             )
             return
 
-        await update.message.reply_text("🔄 Fetching proxy stats...")
+        msg = await update.message.reply_text("📊 Fetching proxy stats...")
 
         try:
             import requests
@@ -872,8 +1006,8 @@ class TelegramBot:
             data = resp.json()
 
             if data.get("status") != "ok":
-                await update.message.reply_text(
-                    f"❌ API Error: {data.get('message', 'Unknown error')}",
+                await msg.edit_text(
+                    f"❌ API Error: {data.get('message', 'Unknown')}",
                     parse_mode="HTML",
                 )
                 return
@@ -900,27 +1034,26 @@ class TelegramBot:
                 pct_used = 0
                 bar = "░" * 20
 
-            rate_per_gb = 1.2
-            used_gb = used_bytes / 1073741824
-            cost = used_gb * rate_per_gb
+            cost = (used_bytes / 1073741824) * 1.2
 
             text = (
                 "📊 <b>Proxy Stats</b>\n"
                 "━━━━━━━━━━━━━━━━━━━\n\n"
-                f"📦 <b>Total Traffic:</b> {fmt_bytes(total_bytes)}\n"
-                f"📤 <b>Used:</b> {fmt_bytes(used_bytes)} ({pct_used:.1f}%)\n"
-                f"📥 <b>Remaining:</b> {fmt_bytes(left_bytes)}\n\n"
+                f"📦 Total: {fmt_bytes(total_bytes)}\n"
+                f"📤 Used: {fmt_bytes(used_bytes)} ({pct_used:.1f}%)\n"
+                f"📥 Left: {fmt_bytes(left_bytes)}\n\n"
                 f"<code>[{bar}]</code> {pct_used:.1f}%\n\n"
-                f"💰 <b>Rate:</b> ${rate_per_gb:.1f}/GB\n"
-                f"💸 <b>Cost So Far:</b> ${cost:.2f}"
+                f"💰 ${cost:.2f} @ $1.2/GB"
             )
 
-            await update.message.reply_text(text, parse_mode="HTML")
+            await msg.edit_text(text, parse_mode="HTML")
         except Exception as e:
-            await update.message.reply_text(
-                f"❌ Failed to fetch proxy stats:\n<code>{e}</code>",
+            await msg.edit_text(
+                f"❌ Failed: <code>{e}</code>",
                 parse_mode="HTML",
             )
+
+    # ── Admin Commands ─────────────────────────────────────────
 
     async def cmd_addadmin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_admin(update):
@@ -929,7 +1062,7 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /addadmin <code>username</code>",
+                "🔑 <b>Usage:</b> /addadmin <code>username</code>",
                 parse_mode="HTML",
             )
             return
@@ -947,7 +1080,7 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /removeadmin <code>username</code>",
+                "🔑 <b>Usage:</b> /removeadmin <code>username</code>",
                 parse_mode="HTML",
             )
             return
@@ -955,13 +1088,13 @@ class TelegramBot:
         username = context.args[0].lstrip("@")
         current_user = self._get_username(update)
         if username == current_user:
-            await update.message.reply_text("❌ You can't remove yourself.", parse_mode="HTML")
+            await update.message.reply_text("❌ Can't remove yourself.", parse_mode="HTML")
             return
 
         if self.db.remove_admin(username):
             await update.message.reply_text(f"🗑 <b>@{username}</b> removed from admins.", parse_mode="HTML")
         else:
-            await update.message.reply_text("❌ Can't remove — must have at least one admin.", parse_mode="HTML")
+            await update.message.reply_text("❌ Must have at least one admin.", parse_mode="HTML")
 
     async def cmd_adduser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_admin(update):
@@ -970,7 +1103,7 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /adduser <code>username</code>",
+                "👥 <b>Usage:</b> /adduser <code>username</code>",
                 parse_mode="HTML",
             )
             return
@@ -988,7 +1121,7 @@ class TelegramBot:
 
         if not context.args:
             await update.message.reply_text(
-                "📝 <b>Usage:</b> /removeuser <code>username</code>",
+                "👥 <b>Usage:</b> /removeuser <code>username</code>",
                 parse_mode="HTML",
             )
             return
@@ -1009,15 +1142,13 @@ class TelegramBot:
 
         lines = [
             "👥 <b>Access Control</b>",
-            "━━━━━━━━━━━━━━━━━━━",
-            "",
+            "━━━━━━━━━━━━━━━━━━━\n",
             "🔑 <b>Admins:</b>",
         ]
         for a in admins:
             lines.append(f"  • @{a}")
 
-        lines.append("")
-        lines.append("👤 <b>Allowed Users:</b>")
+        lines.append("\n👤 <b>Users:</b>")
         if users:
             for u in users:
                 lines.append(f"  • @{u}")
@@ -1033,7 +1164,7 @@ class TelegramBot:
 
         if not update.message.document:
             await update.message.reply_text(
-                "🍪 <b>Upload Cookies</b>\n\n"
+                "🔑 <b>Upload Cookies</b>\n\n"
                 "Send a file named <code>cookies.txt</code> with this command.",
                 parse_mode="HTML",
             )
@@ -1056,7 +1187,7 @@ class TelegramBot:
             cookies = json.loads(text_content)
 
             if not isinstance(cookies, list):
-                await update.message.reply_text("❌ Invalid cookie format. Must be a JSON array.", parse_mode="HTML")
+                await update.message.reply_text("❌ Invalid cookie format. Must be JSON array.", parse_mode="HTML")
                 return
 
             cookies_path = self.config.instagram_auth.cookies_path
@@ -1068,7 +1199,7 @@ class TelegramBot:
             self._admin_notified_cookies = False
 
             await update.message.reply_text(
-                f"✅ <b>Cookies saved!</b>\n\n"
+                f"✅ <b>Cookies saved</b>\n\n"
                 f"📦 {len(cookies)} cookies loaded\n"
                 f"📁 {cookies_path}\n"
                 f"🔄 Instagram auth enabled",
@@ -1078,7 +1209,7 @@ class TelegramBot:
             await update.message.reply_text("❌ Invalid JSON in cookies file.", parse_mode="HTML")
         except Exception as e:
             await update.message.reply_text(
-                f"❌ Failed to save cookies:\n<code>{e}</code>",
+                f"❌ Failed: <code>{e}</code>",
                 parse_mode="HTML",
             )
 
@@ -1119,13 +1250,13 @@ class TelegramBot:
                     chat_id=chat_id,
                     document=f,
                     filename=f"instagram-monitor-backup-{ts}.zip",
-                    caption=f"💾 <b>Backup</b>\n📦 Size: {size_mb:.1f} MB",
+                    caption=f"💾 <b>Backup</b> — {size_mb:.1f} MB",
                     parse_mode="HTML",
                 )
 
             os.remove(zip_path)
         except Exception as e:
-            await msg.edit_text(f"❌ Backup failed:\n<code>{e}</code>", parse_mode="HTML")
+            await msg.edit_text(f"❌ Backup failed: <code>{e}</code>", parse_mode="HTML")
 
     async def cmd_changelog(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
@@ -1141,7 +1272,7 @@ class TelegramBot:
                 )
                 return
 
-            lines = ["📋 <b>Recent Changelogs</b>\n━━━━━━━━━━━━━━━━━━━"]
+            lines = ["📋 <b>Recent Updates</b>\n━━━━━━━━━━━━━━━━━━━"]
             for cl in changelogs:
                 try:
                     dt = datetime.fromisoformat(cl["created_at"].replace("Z", "+00:00"))
@@ -1149,8 +1280,7 @@ class TelegramBot:
                 except Exception:
                     time_str = cl["created_at"][:16]
                 lines.append(f"\n<b>{time_str}</b> — @{cl['author']}\n{cl['message']}")
-            lines.append("\n━━━━━━━━━━━━━━━━━━━")
-            lines.append("💡 <code>/changelog add &lt;message&gt;</code> — Admin only")
+            lines.append("\n💡 <code>/changelog add &lt;msg&gt;</code> — Admin only")
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
             return
 
@@ -1181,7 +1311,7 @@ class TelegramBot:
             chat_ids = self.db.get_all_recipient_chat_ids()
             sender_chat_id = update.effective_chat.id
             broadcast = (
-                f"📢 <b>New Changelog</b>\n"
+                f"📢 <b>New Update</b>\n"
                 "━━━━━━━━━━━━━━━━━━━\n\n"
                 f"{message}\n\n"
                 f"— @{author}"
@@ -1199,10 +1329,12 @@ class TelegramBot:
         else:
             await update.message.reply_text(
                 "📝 <b>Usage:</b>\n"
-                "/changelog — View recent changelogs\n"
-                "/changelog add <code>message</code> — Add changelog (admin)",
+                "/changelog — View updates\n"
+                "/changelog add <code>message</code> — Add update (admin)",
                 parse_mode="HTML",
             )
+
+    # ── Notifications ──────────────────────────────────────────
 
     def notify(self, message: str):
         if not self.app or not self.app.bot:
@@ -1225,6 +1357,38 @@ class TelegramBot:
                 asyncio.run(coro)
         except Exception as e:
             logger.error(f"Failed to queue notification: {e}")
+
+    def notify_to_chat_ids(self, chat_ids: list, message: str):
+        if not self.app or not self.app.bot:
+            return
+
+        try:
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            coro = self._send_to_chat_ids(chat_ids, message)
+            if loop and loop.is_running():
+                asyncio.ensure_future(coro)
+            elif loop:
+                loop.run_until_complete(coro)
+            else:
+                asyncio.run(coro)
+        except Exception as e:
+            logger.error(f"Failed to queue notification: {e}")
+
+    async def _send_to_chat_ids(self, chat_ids: list, message: str):
+        for chat_id in chat_ids:
+            try:
+                await self.app.bot.send_message(
+                    chat_id=chat_id,
+                    text=message,
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                logger.error(f"Failed to send to {chat_id}: {e}")
 
     async def _send_notification(self, message: str):
         chat_ids = self.db.get_admin_chat_ids()
@@ -1262,6 +1426,47 @@ class TelegramBot:
                 asyncio.run(coro)
         except Exception as e:
             logger.error(f"Failed to queue photo: {e}")
+
+    def notify_photo_to_chat_ids(self, chat_ids: list, photo_path: str, caption: str):
+        if not self.app or not self.app.bot:
+            return
+
+        try:
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            coro = self._send_photo_to_chat_ids(chat_ids, photo_path, caption)
+            if loop and loop.is_running():
+                asyncio.ensure_future(coro)
+            elif loop:
+                loop.run_until_complete(coro)
+            else:
+                asyncio.run(coro)
+        except Exception as e:
+            logger.error(f"Failed to queue photo: {e}")
+
+    async def _send_photo_to_chat_ids(self, chat_ids: list, photo_path: str, caption: str):
+        for chat_id in chat_ids:
+            try:
+                if not os.path.exists(photo_path):
+                    await self.app.bot.send_message(
+                        chat_id=chat_id,
+                        text=caption,
+                        parse_mode="HTML",
+                    )
+                    continue
+                with open(photo_path, "rb") as photo:
+                    await self.app.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo,
+                        caption=caption,
+                        parse_mode="HTML",
+                    )
+            except Exception as e:
+                logger.error(f"Failed to send photo to {chat_id}: {e}")
 
     async def _send_photo(self, photo_path: str, caption: str):
         chat_ids = self.db.get_admin_chat_ids()

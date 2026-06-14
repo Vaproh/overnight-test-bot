@@ -16,7 +16,7 @@
 |---------|-------------|
 | `/add <username>` | Start monitoring an account |
 | `/remove <username>` | Stop monitoring an account |
-| `/status` | All monitored accounts with last check time |
+| `/status` | All monitored accounts with details |
 | `/accounts` | List all monitored accounts |
 | `/check <username>` | Manual check (updates DB, may trigger notification) |
 | `/test <username>` | Test an account without adding to monitoring |
@@ -37,9 +37,19 @@
 
 ## Access Control
 
-- **Admins**: Full access. Can manage users, upload cookies, create backups.
-- **Allowed Users**: Can use all monitoring commands. Cannot manage users or access admin features.
+- **Admins**: Full access. Can see all monitors, manage users, upload cookies, create backups.
+- **Allowed Users**: Can use all monitoring commands. Can only see their own added monitors.
 - **Everyone else**: Denied with a message to contact admin.
+
+## Per-User Monitoring
+
+Each user can only see the accounts they added. Admins see everything.
+
+- When a user runs `/add`, the account is tracked with `added_by` = their username.
+- `/status`, `/accounts`, `/remove`, `/check` only show accounts the user added.
+- Admins see all accounts regardless of who added them.
+- If a user tries to add an account already monitored by someone else, they're told to ask an admin.
+- If a user tries to remove an account they don't own, they're told to ask an admin.
 
 ## Notifications
 
@@ -47,8 +57,7 @@ The bot sends notifications on status transitions:
 
 - **ACTIVE → MISSING**: Account may be banned/deleted. Includes screenshot, status, and time in previous state.
 - **MISSING → ACTIVE**: Account restored. Includes profile data (followers, following, posts).
-
-Screenshots are cropped to the profile header area (dark mode, Pixel 7 viewport).
+- Notifications go to all admins + the user who added the account.
 
 ## Status Types
 

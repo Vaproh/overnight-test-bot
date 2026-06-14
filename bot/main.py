@@ -40,6 +40,8 @@ def main():
         telegram_bot.build()
         monitor.notify_fn = telegram_bot.notify
         monitor.notify_photo_fn = telegram_bot.notify_photo
+        monitor.notify_to_chat_ids = telegram_bot.notify_to_chat_ids
+        monitor.notify_photo_to_chat_ids = telegram_bot.notify_photo_to_chat_ids
 
     def shutdown(signum, frame):
         logger.info(f"Received signal {signum}, shutting down...")

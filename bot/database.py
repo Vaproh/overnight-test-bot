@@ -88,6 +88,7 @@ class Database:
 
     def _migrate(self):
         cursor = self.conn.cursor()
+
         cursor.execute("PRAGMA table_info(admins)")
         columns = {row["name"] for row in cursor.fetchall()}
         if "chat_id" not in columns:
@@ -98,6 +99,12 @@ class Database:
         columns = {row["name"] for row in cursor.fetchall()}
         if "chat_id" not in columns:
             cursor.execute("ALTER TABLE allowed_users ADD COLUMN chat_id INTEGER")
+            self.conn.commit()
+
+        cursor.execute("PRAGMA table_info(accounts)")
+        columns = {row["name"] for row in cursor.fetchall()}
+        if "added_by" not in columns:
+            cursor.execute("ALTER TABLE accounts ADD COLUMN added_by TEXT")
             self.conn.commit()
 
     def update_admin_chat_id(self, username: str, chat_id: int):
@@ -241,13 +248,16 @@ class Database:
                     pass
         return deleted
 
-    def get_or_create_account(self, username: str) -> int:
+    def get_or_create_account(self, username: str, added_by: str = "") -> int:
         cursor = self.conn.cursor()
         cursor.execute("SELECT id FROM accounts WHERE username = ?", (username,))
         row = cursor.fetchone()
         if row:
+            if added_by:
+                cursor.execute("UPDATE accounts SET added_by = ? WHERE id = ? AND (added_by IS NULL OR added_by = '')", (added_by, row["id"]))
+                self.conn.commit()
             return int(row["id"])
-        cursor.execute("INSERT INTO accounts (username) VALUES (?)", (username,))
+        cursor.execute("INSERT INTO accounts (username, added_by) VALUES (?, ?)", (username, added_by))
         self.conn.commit()
         return cursor.lastrowid or 0
 
@@ -314,6 +324,53 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM accounts ORDER BY id")
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_accounts_for_user(self, username: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM accounts WHERE added_by = ? OR added_by IS NULL ORDER BY id",
+            (username,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_accounts_for_non_admin(self, username: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM accounts WHERE added_by = ? ORDER BY id",
+            (username,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_account_added_by(self, username: str) -> Optional[str]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT added_by FROM accounts WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        return row["added_by"] if row else None
+
+    def get_notification_chat_ids_for_account(self, account_id: int) -> List[int]:
+        cursor = self.conn.cursor()
+
+        cursor.execute("SELECT chat_id FROM admins WHERE chat_id IS NOT NULL")
+        admin_ids = {row["chat_id"] for row in cursor.fetchall()}
+
+        cursor.execute("SELECT added_by FROM accounts WHERE id = ?", (account_id,))
+        row = cursor.fetchone()
+        added_by = row["added_by"] if row else None
+
+        owner_ids = set()
+        if added_by:
+            cursor.execute(
+                "SELECT chat_id FROM admins WHERE username = ? AND chat_id IS NOT NULL",
+                (added_by,),
+            )
+            owner_ids.update(row["chat_id"] for row in cursor.fetchall() if row["chat_id"])
+            cursor.execute(
+                "SELECT chat_id FROM allowed_users WHERE username = ? AND chat_id IS NOT NULL",
+                (added_by,),
+            )
+            owner_ids.update(row["chat_id"] for row in cursor.fetchall() if row["chat_id"])
+
+        return list(admin_ids | owner_ids)
 
     def get_recent_events(self, limit: int = 10) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
