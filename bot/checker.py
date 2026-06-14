@@ -245,36 +245,46 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
 
             if status == "active":
                 tmp_path = screenshot_path + ".tmp.png"
+                try:
+                    await page.screenshot(path=tmp_path, full_page=False)
+                    from PIL import Image
+                    img = Image.open(tmp_path)
+                    w, h = img.size
+                    scale = h / 915
+                    cropped = img.crop((0, int(30 * scale), w, int(300 * scale)))
+
+                    if not _is_blank_image(cropped):
+                        cropped.save(screenshot_path)
+                        result["screenshot_path"] = screenshot_path
+                    else:
+                        logger.warning(f"Blank screenshot for {username}, skipping")
+                except Exception as e:
+                    logger.error(f"Screenshot failed for {username}: {e}")
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+
+                await browser.close()
+                return
+
+            tmp_path = screenshot_path + ".tmp.png"
+            try:
                 await page.screenshot(path=tmp_path, full_page=False)
                 from PIL import Image
                 img = Image.open(tmp_path)
                 w, h = img.size
-                scale = h / 915
-                cropped = img.crop((0, int(30 * scale), w, int(300 * scale)))
+                cropped = img.crop((0, 0, w, int(600 * (h / 915))))
 
                 if not _is_blank_image(cropped):
                     cropped.save(screenshot_path)
                     result["screenshot_path"] = screenshot_path
                 else:
                     logger.warning(f"Blank screenshot for {username}, skipping")
-                os.remove(tmp_path)
-
-                await browser.close()
-                return
-
-            tmp_path = screenshot_path + ".tmp.png"
-            await page.screenshot(path=tmp_path, full_page=False)
-            from PIL import Image
-            img = Image.open(tmp_path)
-            w, h = img.size
-            cropped = img.crop((0, 0, w, int(600 * (h / 915))))
-
-            if not _is_blank_image(cropped):
-                cropped.save(screenshot_path)
-                result["screenshot_path"] = screenshot_path
-            else:
-                logger.warning(f"Blank screenshot for {username}, skipping")
-            os.remove(tmp_path)
+            except Exception as e:
+                logger.error(f"Screenshot failed for {username}: {e}")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
             await browser.close()
 

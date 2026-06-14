@@ -218,9 +218,9 @@ class Database:
         if old_status != new_status:
             cursor.execute("""
                 UPDATE accounts
-                SET status = ?, previous_status = ?, last_change = ?, updated_at = ?
+                SET status = ?, previous_status = ?, last_check = ?, last_change = ?, check_count = check_count + 1, updated_at = ?
                 WHERE id = ?
-            """, (new_status, old_status, now, now, account_id))
+            """, (new_status, old_status, now, now, now, account_id))
         else:
             cursor.execute("""
                 UPDATE accounts

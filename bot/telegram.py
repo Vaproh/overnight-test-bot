@@ -175,14 +175,12 @@ class TelegramBot:
         elif data == "menu:proxy":
             await self._handle_proxy_callback(query)
         elif data == "menu:ping":
-            start = _time.time()
-            latency = (_time.time() - start) * 1000
-            await query.edit_message_text(
-                f"🏓 <b>Pong!</b> {latency:.0f}ms\n"
+            msg_text = (
+                f"🏓 <b>Pong!</b>\n"
                 f"📡 Monitoring: {len(self.db.get_all_accounts())} accounts\n"
-                f"⏱ Uptime: {self.monitor.get_uptime()}",
-                parse_mode="HTML",
+                f"⏱ Uptime: {self.monitor.get_uptime()}"
             )
+            await query.edit_message_text(msg_text, parse_mode="HTML")
         elif data == "menu:health":
             accounts = self.db.get_all_accounts()
             await query.edit_message_text(
@@ -501,7 +499,19 @@ class TelegramBot:
                         parse_mode="HTML",
                     )
             else:
-                await update.message.reply_text(caption, parse_mode="HTML")
+                if status == "ACTIVE":
+                    fallback = (
+                        f"{caption}\n\n"
+                        f"⚠️ <b>Screenshot unavailable</b>\n\n"
+                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>\n\n"
+                        f"<b>Possible causes:</b>\n"
+                        f"• Instagram served a blank/challenge page\n"
+                        f"• Proxy IP flagged after sustained use\n"
+                        f"• Page didn't load in time"
+                    )
+                else:
+                    fallback = caption
+                await update.message.reply_text(fallback, parse_mode="HTML")
         except Exception as e:
             await update.message.reply_text(
                 f"⚠️ Added but check failed:\n<code>{e}</code>",
@@ -622,7 +632,19 @@ class TelegramBot:
                         parse_mode="HTML",
                     )
             else:
-                await update.message.reply_text(caption, parse_mode="HTML")
+                if result["classification"] == "ACTIVE":
+                    fallback = (
+                        f"{caption}\n\n"
+                        f"⚠️ <b>Screenshot unavailable</b>\n\n"
+                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>\n\n"
+                        f"<b>Possible causes:</b>\n"
+                        f"• Instagram served a blank/challenge page\n"
+                        f"• Proxy IP flagged after sustained use\n"
+                        f"• Page didn't load in time"
+                    )
+                else:
+                    fallback = caption
+                await update.message.reply_text(fallback, parse_mode="HTML")
         except Exception as e:
             await update.message.reply_text(
                 f"❌ Error testing @{username}:\n<code>{e}</code>",
