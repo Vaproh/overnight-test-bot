@@ -92,6 +92,8 @@ def classify_playwright_response(page_content: str, status_code: Optional[int]) 
         or '"is_private":' in page_content
         or re.search(r'"follower_count"\s*:\s*\d+', page_content)
         or re.search(r'"media_count"\s*:\s*\d+', page_content)
+        or '"profile_pic_url"' in page_content
+        or '"biography"' in page_content
     )
 
     if has_profile_data:
@@ -100,6 +102,9 @@ def classify_playwright_response(page_content: str, status_code: Optional[int]) 
     has_login_prompt = (
         "Sorry, this page isn't available." in page_content
         or "The link you followed may be broken" in page_content
+        or "Page Not Found" in page_content
+        or "content=\"Oops, we couldn&#39;t find that page.\"" in page_content
+        or "The page you were looking for doesn&#39;t exist." in page_content
     )
     if has_login_prompt:
         return "MISSING"
@@ -109,6 +114,12 @@ def classify_playwright_response(page_content: str, status_code: Optional[int]) 
         if '"full_name"' in page_content and '"username"' in page_content:
             return "ACTIVE"
         return "MISSING"
+
+    if '"require_login"' in page_content or '"Authentication required"' in page_content:
+        return "MISSING"
+
+    if re.search(r'"user":\s*\{\s*"biography"', page_content):
+        return "ACTIVE"
 
     return "UNKNOWN"
 
@@ -386,6 +397,10 @@ def verify_with_playwright(username: str, curl_result: Dict[str, Any], config: C
         logger.warning(f"Disagreement: curl=MISSING, playwright=ACTIVE for {username} -> SUSPECT")
     else:
         logger.warning(f"Playwright returned {pw_class} for {username}, keeping curl result")
+        raw = pw_result.get("raw_response", {})
+        if isinstance(raw, dict):
+            preview = raw.get("content_preview", "")[:500]
+            logger.debug(f"Page preview for {username}: {preview}")
 
     return curl_result
 
