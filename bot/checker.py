@@ -210,19 +210,16 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                     await page.context.add_cookies(cookies)
 
             await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
-            await page.wait_for_timeout(4000)
+
+            try:
+                await page.wait_for_selector("header, main header, section main header", timeout=15000)
+            except Exception:
+                await page.wait_for_timeout(5000)
 
             await _dismiss_popups(page)
             await page.wait_for_timeout(1000)
             await _dismiss_popups(page)
             await page.wait_for_timeout(1000)
-
-            for _ in range(3):
-                content = await page.content()
-                if len(content) > 5000 and "just a moment" not in content.lower():
-                    break
-                logger.warning(f"Page content too short or challenge detected for {username}, waiting...")
-                await page.wait_for_timeout(3000)
 
             profile_data = await _extract_profile_data_async(page)
             result["profile_data"] = profile_data
