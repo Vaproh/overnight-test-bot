@@ -326,6 +326,7 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
             if proxy_url:
                 launch_args["proxy"] = {"server": proxy_url}
             browser = await p.chromium.launch(**launch_args)
+            logger.info(f"Playwright launched for {username} (proxy={'yes' if proxy_url else 'no'})")
             try:
                 user_agent = random.choice(config.user_agents)
                 context = await browser.new_context(
