@@ -287,7 +287,11 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
 
     async def _check():
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=config.playwright.headless)
+            proxy_url = config.proxy.get_url()
+            launch_args = {"headless": config.playwright.headless}
+            if proxy_url:
+                launch_args["proxy"] = {"server": proxy_url}
+            browser = await p.chromium.launch(**launch_args)
             try:
                 user_agent = random.choice(config.user_agents)
                 context = await browser.new_context(
