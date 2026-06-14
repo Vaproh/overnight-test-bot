@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import random
-import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -104,32 +103,58 @@ def is_page_loaded_snapshot(snapshot: str) -> bool:
     return count >= 2
 
 
-def detect_overlay_snapshot(snapshot: str) -> Optional[str]:
-    """Detect overlay buttons from accessibility snapshot.
+OVERLAY_BUTTONS = [
+    "Accept All",
+    "Accept all",
+    "Accept cookies",
+    "Accept",
+    "Allow all cookies",
+    "Allow All Cookies",
+    "Close",
+    "Decline optional cookies",
+    "Deny all",
+    "Not now",
+    "Reject all",
+    "Rejeter tout",
+    "Cancel",
+    "Log in later",
+]
+
+
+def _find_buttons_in_snapshot(snapshot) -> List[str]:
+    """Recursively find all button accessible names in an accessibility snapshot tree."""
+    buttons = []
+    if isinstance(snapshot, dict):
+        if snapshot.get("role") == "button" and snapshot.get("name"):
+            buttons.append(snapshot["name"])
+        for child in snapshot.get("children", []):
+            buttons.extend(_find_buttons_in_snapshot(child))
+    elif isinstance(snapshot, list):
+        for item in snapshot:
+            buttons.extend(_find_buttons_in_snapshot(item))
+    return buttons
+
+
+def detect_overlay_snapshot(snapshot) -> Optional[str]:
+    """Detect overlay buttons from Playwright accessibility snapshot.
+    Accepts either a dict (from page.accessibility.snapshot()) or a JSON string.
     Returns button accessible name if found, None otherwise.
-    Snapshot format: button "Close" [e123]
     """
-    overlay_buttons = [
-        "Close",
-        "Decline optional cookies",
-        "Deny all",
-        "Reject all",
-        "Rejeter tout",
-        "Not now",
-        "Allow all cookies",
-        "Allow All Cookies",
-        "Accept all",
-        "Accept All",
-        "Accept cookies",
-        "Accept",
-        "Log in later",
-        "Cancel",
-    ]
-    for button_name in overlay_buttons:
-        pattern = rf'button "{re.escape(button_name)}" \[(e\d+)\]'
-        match = re.search(pattern, snapshot)
-        if match:
+    if isinstance(snapshot, str):
+        try:
+            snapshot = json.loads(snapshot)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    if not isinstance(snapshot, dict):
+        return None
+
+    found_buttons = _find_buttons_in_snapshot(snapshot)
+
+    for button_name in OVERLAY_BUTTONS:
+        if button_name in found_buttons:
             return button_name
+
     return None
 
 
@@ -335,7 +360,7 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
                         result["raw_response"] = {"url": url, "snapshot": snapshot_str[:2000]}
                         break
 
-                    overlay_name = detect_overlay_snapshot(snapshot_str)
+                    overlay_name = detect_overlay_snapshot(snapshot)
                     if overlay_name:
                         logger.debug(f"Dismissing '{overlay_name}' overlay for {username}")
                         try:
