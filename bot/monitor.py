@@ -112,7 +112,10 @@ class Monitor:
         for account in accounts:
             if not self.running:
                 break
-            self._check_single_account(account["username"])
+            try:
+                self._check_single_account(account["username"])
+            except Exception as e:
+                logger.error(f"Error checking {account['username']}: {e}")
 
         logger.info("--- Check cycle complete ---")
 
