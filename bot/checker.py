@@ -342,13 +342,14 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
                     if cookies:
                         await page.context.add_cookies(cookies)
 
-                response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
-                await page.wait_for_timeout(3000)
+                goto_timeout = min(config.playwright.timeout, 15000)
+                response = await page.goto(url, wait_until="domcontentloaded", timeout=goto_timeout)
+                await page.wait_for_timeout(1500)
 
                 if response:
                     result["status_code"] = response.status
 
-                for _ in range(10):
+                for _ in range(5):
                     snapshot = await page.accessibility.snapshot()
                     if not snapshot:
                         break
@@ -367,10 +368,10 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
                             btn = page.get_by_role("button", name=overlay_name)
                             if await btn.is_visible(timeout=500):
                                 await btn.click(timeout=1000)
-                                await page.wait_for_timeout(1000)
+                                await page.wait_for_timeout(800)
                                 continue
                         except Exception:
-                            await page.wait_for_timeout(1000)
+                            await page.wait_for_timeout(800)
                             continue
 
                     if is_page_loaded_snapshot(snapshot_str):
@@ -390,13 +391,21 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
                 latency_ms = (time.time() - start) * 1000
                 result["latency_ms"] = latency_ms
                 result["response_size"] = len(json.dumps(result.get("raw_response", {})))
+            except asyncio.CancelledError:
+                logger.debug(f"Playwright check cancelled for {username}")
             finally:
-                await browser.close()
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     try:
-        asyncio.run(asyncio.wait_for(_check(), timeout=config.playwright.timeout / 1000))
+        pw_timeout = max(config.playwright.timeout / 1000, 20)
+        asyncio.run(asyncio.wait_for(_check(), timeout=pw_timeout))
     except asyncio.TimeoutError:
         logger.warning(f"Playwright check timed out for {username}")
+    except asyncio.CancelledError:
+        logger.warning(f"Playwright check cancelled for {username}")
     except Exception as e:
         latency_ms = (time.time() - start) * 1000
         result["latency_ms"] = latency_ms
