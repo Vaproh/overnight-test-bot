@@ -465,7 +465,11 @@ class TelegramBot:
             profile_data = {}
             screenshot_path = None
             if status == "ACTIVE":
-                screenshot_data = capture_profile_screenshot(username, self.config, "add")
+                import asyncio as _asyncio
+                loop = _asyncio.get_running_loop()
+                screenshot_data = await loop.run_in_executor(
+                    None, capture_profile_screenshot, username, self.config, "add"
+                )
                 screenshot_path = screenshot_data.get("screenshot_path")
                 profile_data = screenshot_data.get("profile_data", {})
 
@@ -603,7 +607,11 @@ class TelegramBot:
             profile_data = {}
             screenshot_path = None
             if result["classification"] == "ACTIVE":
-                screenshot_data = capture_profile_screenshot(username, self.config, "test")
+                import asyncio as _asyncio
+                loop = _asyncio.get_running_loop()
+                screenshot_data = await loop.run_in_executor(
+                    None, capture_profile_screenshot, username, self.config, "test"
+                )
                 screenshot_path = screenshot_data.get("screenshot_path")
                 profile_data = screenshot_data.get("profile_data", {})
 

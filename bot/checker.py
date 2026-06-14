@@ -289,17 +289,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             await browser.close()
 
     try:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                loop.run_in_executor(pool, lambda: asyncio.run(_capture()))
-        else:
-            asyncio.run(_capture())
+        asyncio.run(_capture())
     except Exception as e:
         logger.error(f"Screenshot capture failed for {username}: {e}")
 
