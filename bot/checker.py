@@ -82,43 +82,68 @@ def classify_response(data: Dict[str, Any], status_code: Optional[int]) -> str:
     return "MISSING"
 
 
-def classify_playwright_response(page_content: str, status_code: Optional[int]) -> str:
+def is_profile_unavailable_snapshot(snapshot: str) -> bool:
+    """Check if accessibility snapshot indicates a missing/banned/deactivated profile."""
+    unavailable_phrases = [
+        "Sorry, this page isn't available",
+        "This page isn't available",
+        "The link you followed may be broken",
+        "Page Not Found",
+        "The page you were looking for doesn't exist",
+        "Profile isn't available",
+        "no longer with us",
+    ]
+    return any(phrase in snapshot for phrase in unavailable_phrases)
+
+
+def is_page_loaded_snapshot(snapshot: str) -> bool:
+    """Check if accessibility snapshot shows profile data (posts, followers, following)."""
+    indicators = ["posts", "followers", "following"]
+    snapshot_lower = snapshot.lower()
+    count = sum(1 for ind in indicators if ind in snapshot_lower)
+    return count >= 2
+
+
+def detect_overlay_snapshot(snapshot: str) -> Optional[str]:
+    """Detect overlay buttons from accessibility snapshot.
+    Returns button accessible name if found, None otherwise.
+    Snapshot format: button "Close" [e123]
+    """
+    overlay_buttons = [
+        "Close",
+        "Decline optional cookies",
+        "Deny all",
+        "Reject all",
+        "Rejeter tout",
+        "Not now",
+        "Allow all cookies",
+        "Allow All Cookies",
+        "Accept all",
+        "Accept All",
+        "Accept cookies",
+        "Accept",
+        "Log in later",
+        "Cancel",
+    ]
+    for button_name in overlay_buttons:
+        pattern = rf'button "{re.escape(button_name)}" \[(e\d+)\]'
+        match = re.search(pattern, snapshot)
+        if match:
+            return button_name
+    return None
+
+
+def classify_playwright_response(snapshot: str, status_code: Optional[int]) -> str:
+    """Classify profile status from Playwright accessibility snapshot.
+    Uses the same approach as the screenshot service's Camofox client.
+    """
     if status_code == 404:
         return "MISSING"
 
-    has_profile_data = (
-        '"edge_followed_by"' in page_content
-        or '"edge_follow"' in page_content
-        or '"is_private":' in page_content
-        or re.search(r'"follower_count"\s*:\s*\d+', page_content)
-        or re.search(r'"media_count"\s*:\s*\d+', page_content)
-        or '"profile_pic_url"' in page_content
-        or '"biography"' in page_content
-    )
-
-    if has_profile_data:
-        return "ACTIVE"
-
-    has_login_prompt = (
-        "Sorry, this page isn't available." in page_content
-        or "The link you followed may be broken" in page_content
-        or "Page Not Found" in page_content
-        or "content=\"Oops, we couldn&#39;t find that page.\"" in page_content
-        or "The page you were looking for doesn&#39;t exist." in page_content
-    )
-    if has_login_prompt:
+    if is_profile_unavailable_snapshot(snapshot):
         return "MISSING"
 
-    content_lower = page_content.lower()
-    if "login" in content_lower and ("sign" in content_lower or "log in" in content_lower):
-        if '"full_name"' in page_content and '"username"' in page_content:
-            return "ACTIVE"
-        return "MISSING"
-
-    if '"require_login"' in page_content or '"Authentication required"' in page_content:
-        return "MISSING"
-
-    if re.search(r'"user":\s*\{\s*"biography"', page_content):
+    if is_page_loaded_snapshot(snapshot):
         return "ACTIVE"
 
     return "UNKNOWN"
@@ -267,38 +292,6 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
     import asyncio
     from playwright.async_api import async_playwright
 
-    async def _dismiss_overlays(page):
-        overlay_buttons = [
-            'button:has-text("Close")',
-            'button:has-text("Decline optional cookies")',
-            'button:has-text("Deny all")',
-            'button:has-text("Reject all")',
-            'button:has-text("Rejeter tout")',
-            'button:has-text("Not now")',
-            'button:has-text("Allow all cookies")',
-            'button:has-text("Allow All Cookies")',
-            'button:has-text("Accept all")',
-            'button:has-text("Accept All")',
-            'button:has-text("Accept cookies")',
-            'button:has-text("Accept")',
-        ]
-        for selector in overlay_buttons:
-            try:
-                btn = page.locator(selector).first
-                if await btn.is_visible(timeout=500):
-                    await btn.click(timeout=1000)
-                    await page.wait_for_timeout(500)
-            except Exception:
-                pass
-
-        try:
-            login_later = page.locator('button:has-text("Log in later"), button:has-text("Not now"), button:has-text("Cancel")').first
-            if await login_later.is_visible(timeout=500):
-                await login_later.click(timeout=1000)
-                await page.wait_for_timeout(500)
-        except Exception:
-            pass
-
     result = {
         "username": username,
         "transport": "playwright",
@@ -343,24 +336,51 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
                 response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
                 await page.wait_for_timeout(3000)
 
-                await _dismiss_overlays(page)
-
-                latency_ms = (time.time() - start) * 1000
-                result["latency_ms"] = latency_ms
-
                 if response:
                     result["status_code"] = response.status
 
-                page_content = await page.content()
-                result["response_size"] = len(page_content)
-                result["classification"] = classify_playwright_response(page_content, result.get("status_code"))
+                for _ in range(10):
+                    snapshot = await page.accessibility.snapshot()
+                    if not snapshot:
+                        break
 
-                result["raw_response"] = {
-                    "url": url,
-                    "title": await page.title(),
-                    "content_length": len(page_content),
-                    "content_preview": page_content[:2000],
-                }
+                    snapshot_str = json.dumps(snapshot)
+
+                    if is_profile_unavailable_snapshot(snapshot_str):
+                        result["classification"] = "MISSING"
+                        result["raw_response"] = {"url": url, "snapshot": snapshot_str[:2000]}
+                        break
+
+                    overlay_name = detect_overlay_snapshot(snapshot_str)
+                    if overlay_name:
+                        logger.debug(f"Dismissing '{overlay_name}' overlay for {username}")
+                        try:
+                            btn = page.get_by_role("button", name=overlay_name)
+                            if await btn.is_visible(timeout=500):
+                                await btn.click(timeout=1000)
+                                await page.wait_for_timeout(1000)
+                                continue
+                        except Exception:
+                            await page.wait_for_timeout(1000)
+                            continue
+
+                    if is_page_loaded_snapshot(snapshot_str):
+                        result["classification"] = "ACTIVE"
+                        result["raw_response"] = {"url": url, "snapshot": snapshot_str[:2000]}
+                        break
+
+                    break
+
+                if result["classification"] == "ERROR":
+                    snapshot = await page.accessibility.snapshot()
+                    snapshot_str = json.dumps(snapshot) if snapshot else ""
+                    result["response_size"] = len(snapshot_str)
+                    result["raw_response"] = {"url": url, "snapshot": snapshot_str[:2000]}
+                    logger.warning(f"No snapshot match for {username}, snapshot preview: {snapshot_str[:500]}")
+
+                latency_ms = (time.time() - start) * 1000
+                result["latency_ms"] = latency_ms
+                result["response_size"] = len(json.dumps(result.get("raw_response", {})))
             finally:
                 await browser.close()
 
