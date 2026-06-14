@@ -1,0 +1,59 @@
+# Instagram Monitor Bot - Configuration Example
+# Copy this file to config.yaml and fill in your values
+
+# Telegram bot token (required for notifications)
+telegram_token: "YOUR_TELEGRAM_BOT_TOKEN"
+
+# Check interval in seconds (default: 5 minutes)
+check_interval: 300
+
+# Request timeout in seconds
+request_timeout: 30
+
+# Proxy settings
+proxy:
+  enabled: false
+  server: ""
+  username: ""
+  password: ""
+
+# Retry settings
+retry:
+  attempts: 3
+  backoff_seconds:
+    - 5
+    - 15
+    - 45
+
+# Playwright verification settings
+playwright:
+  enabled: true
+  headless: true
+  timeout: 30000
+
+# Screenshot service URL (Camofox-based, deployed separately)
+screenshot_service_url: ""
+
+# Instagram cookies for Playwright verification (optional)
+# Export cookies from browser and save to data/cookies.json
+instagram_auth:
+  enabled: false
+  cookies_path: "./data/cookies.json"
+
+# Storage paths
+database_path: "./data/monitor.db"
+raw_responses_dir: "./data/raw_responses"
+logs_dir: "./data/logs"
+screenshots_dir: "./data/screenshots"
+
+# Logging level (DEBUG, INFO, WARNING, ERROR)
+log_level: "INFO"
+
+# User agent for Instagram API
+user_agent: "Instagram 320.0.0.0 Android (33; 33; SM-S908B; SM-S908B; 33; 33; exynos2200; en_US; 701237498)"
+
+# Test accounts - verified once at startup, not continuously monitored
+test_accounts: []
+
+# Admin usernames (seeded into DB on first run)
+admins: []

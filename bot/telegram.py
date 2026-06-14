@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from .config import Config
 from .database import Database
@@ -35,6 +35,7 @@ class TelegramBot:
         self.monitor = monitor
         self.app: Optional[Application] = None
         self._admin_notified_cookies = False
+        self._pending_changelog: dict = {}
 
     def _get_username(self, update: Update) -> str:
         user = update.effective_user
@@ -129,7 +130,9 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("listusers", self.cmd_listusers))
         self.app.add_handler(CommandHandler("changelog", self.cmd_changelog))
         self.app.add_handler(CommandHandler("logs", self.cmd_logs))
+        self.app.add_handler(CommandHandler("cancel", self.cmd_cancel))
 
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message))
         self.app.add_handler(CallbackQueryHandler(self._handle_callback))
 
         return self.app
@@ -314,7 +317,7 @@ class TelegramBot:
                 except Exception:
                     time_str = cl["created_at"][:16]
                 lines.append(f"\n<b>{time_str}</b> — @{cl['author']}\n{cl['message']}")
-            lines.append("\n💡 <code>/changelog add &lt;msg&gt;</code> — Admin only")
+            lines.append("\n💡 <code>/changelog add</code> — Admin only")
             await query.edit_message_text("\n".join(lines), parse_mode="HTML")
         elif data == "menu:backup":
             if not is_admin:
@@ -552,6 +555,60 @@ class TelegramBot:
             "🔑 Admins can manage users & cookies"
         )
         await update.message.reply_text(text, parse_mode="HTML")
+
+    async def cmd_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if user_id in self._pending_changelog:
+            del self._pending_changelog[user_id]
+            await update.message.reply_text("❌ Changelog cancelled.", parse_mode="HTML")
+        else:
+            await update.message.reply_text("Nothing to cancel.", parse_mode="HTML")
+
+    async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.effective_user or not update.message:
+            return
+
+        user_id = update.effective_user.id
+        if user_id not in self._pending_changelog:
+            return
+
+        if not self._is_admin(update):
+            del self._pending_changelog[user_id]
+            await update.message.reply_text("⛔ Only admins can add changelogs.", parse_mode="HTML")
+            return
+
+        message = update.message.text
+        if not message or not message.strip():
+            await update.message.reply_text("❌ Empty message. Send the changelog text or /cancel.", parse_mode="HTML")
+            return
+
+        del self._pending_changelog[user_id]
+        author = self._get_username(update)
+        self.db.add_changelog(message, author)
+
+        await update.message.reply_text(
+            f"✅ <b>Changelog added</b>\n\n{message}",
+            parse_mode="HTML",
+        )
+
+        chat_ids = self.db.get_all_recipient_chat_ids()
+        sender_chat_id = update.effective_chat.id
+        broadcast = (
+            f"📢 <b>New Update</b>\n"
+            "━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{message}\n\n"
+            f"— @{author}"
+        )
+        for cid in chat_ids:
+            if cid != sender_chat_id:
+                try:
+                    await self.app.bot.send_message(
+                        chat_id=cid,
+                        text=broadcast,
+                        parse_mode="HTML",
+                    )
+                except Exception:
+                    pass
 
     async def cmd_health(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_access(update):
@@ -1337,7 +1394,7 @@ class TelegramBot:
                 except Exception:
                     time_str = cl["created_at"][:16]
                 lines.append(f"\n<b>{time_str}</b> — @{cl['author']}\n{cl['message']}")
-            lines.append("\n💡 <code>/changelog add &lt;msg&gt;</code> — Admin only")
+            lines.append("\n💡 <code>/changelog add</code> — Admin only")
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
             return
 
@@ -1349,45 +1406,50 @@ class TelegramBot:
             return
 
         if context.args[0].lower() == "add":
-            if len(context.args) < 2:
+            if len(context.args) >= 2:
+                message = " ".join(context.args[1:])
+                author = self._get_username(update)
+                self.db.add_changelog(message, author)
+
                 await update.message.reply_text(
-                    "📝 <b>Usage:</b> /changelog add <code>message</code>",
+                    f"✅ <b>Changelog added</b>\n\n{message}",
                     parse_mode="HTML",
                 )
+
+                chat_ids = self.db.get_all_recipient_chat_ids()
+                sender_chat_id = update.effective_chat.id
+                broadcast = (
+                    f"📢 <b>New Update</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"{message}\n\n"
+                    f"— @{author}"
+                )
+                for cid in chat_ids:
+                    if cid != sender_chat_id:
+                        try:
+                            await self.app.bot.send_message(
+                                chat_id=cid,
+                                text=broadcast,
+                                parse_mode="HTML",
+                            )
+                        except Exception:
+                            pass
                 return
 
-            message = " ".join(context.args[1:])
-            author = self._get_username(update)
-            self.db.add_changelog(message, author)
-
+            user_id = update.effective_user.id
+            self._pending_changelog[user_id] = True
             await update.message.reply_text(
-                f"✅ <b>Changelog added</b>\n\n{message}",
+                "📝 <b>Send me the changelog message</b>\n\n"
+                "Type your update and send it. Use /cancel to abort.",
                 parse_mode="HTML",
             )
-
-            chat_ids = self.db.get_all_recipient_chat_ids()
-            sender_chat_id = update.effective_chat.id
-            broadcast = (
-                f"📢 <b>New Update</b>\n"
-                "━━━━━━━━━━━━━━━━━━━\n\n"
-                f"{message}\n\n"
-                f"— @{author}"
-            )
-            for cid in chat_ids:
-                if cid != sender_chat_id:
-                    try:
-                        await self.app.bot.send_message(
-                            chat_id=cid,
-                            text=broadcast,
-                            parse_mode="HTML",
-                        )
-                    except Exception:
-                        pass
+            return
         else:
             await update.message.reply_text(
                 "📝 <b>Usage:</b>\n"
                 "/changelog — View updates\n"
-                "/changelog add <code>message</code> — Add update (admin)",
+                "/changelog add — Add update (admin)\n"
+                "/cancel — Cancel pending action",
                 parse_mode="HTML",
             )
 
