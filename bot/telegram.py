@@ -493,7 +493,7 @@ class TelegramBot:
             lines.extend(["", divider])
             caption = "\n".join(lines)
 
-            if screenshot_path:
+            if screenshot_path and os.path.exists(screenshot_path):
                 with open(screenshot_path, "rb") as f:
                     await update.message.reply_photo(
                         photo=f,
@@ -614,7 +614,7 @@ class TelegramBot:
                 if profile_data.get("posts"):
                     caption += f"\n📝 <b>Posts:</b> {profile_data['posts']}"
 
-            if screenshot_path:
+            if screenshot_path and os.path.exists(screenshot_path):
                 with open(screenshot_path, "rb") as f:
                     await update.message.reply_photo(
                         photo=f,

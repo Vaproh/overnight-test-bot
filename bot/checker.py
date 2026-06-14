@@ -250,25 +250,26 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                     cropped.save(screenshot_path)
                     os.remove(tmp_path)
                     result["screenshot_path"] = screenshot_path
+
+                await browser.close()
+                return
+
+            tmp_path = screenshot_path + ".tmp.png"
+            await page.screenshot(path=tmp_path, full_page=False)
+            from PIL import Image
+            img = Image.open(tmp_path)
+            w, h = img.size
+            cropped = img.crop((0, 0, w, int(600 * (h / 915))))
+
+            pixels = cropped.getdata()
+            is_blank = all(p == (255, 255, 255) or p == (255, 255, 255, 255) for p in list(pixels)[:500])
+            if is_blank:
+                logger.warning(f"Blank screenshot for {username}, skipping")
+                os.remove(tmp_path)
             else:
-                tmp_path = screenshot_path + ".tmp.png"
-                await page.screenshot(path=tmp_path, full_page=False)
-                from PIL import Image
-                img = Image.open(tmp_path)
-                w, h = img.size
-                cropped = img.crop((0, 0, w, int(600 * (h / 915))))
-
-                pixels = cropped.getdata()
-                is_blank = all(p == (255, 255, 255) or p == (255, 255, 255, 255) for p in list(pixels)[:500])
-                if is_blank:
-                    logger.warning(f"Blank screenshot for {username}, skipping")
-                    os.remove(tmp_path)
-                else:
-                    cropped.save(screenshot_path)
-                    os.remove(tmp_path)
-                    result["screenshot_path"] = screenshot_path
-
-            result["screenshot_path"] = screenshot_path
+                cropped.save(screenshot_path)
+                os.remove(tmp_path)
+                result["screenshot_path"] = screenshot_path
 
             await browser.close()
 
