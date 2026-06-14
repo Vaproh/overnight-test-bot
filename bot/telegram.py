@@ -638,7 +638,11 @@ class TelegramBot:
         try:
             from .checker import check_account, capture_profile_screenshot
 
-            result = check_account(username, self.config)
+            import asyncio as _asyncio
+            loop = _asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, check_account, username, self.config
+            )
             status = result["classification"]
             emoji = STATUS_EMOJI.get(status, "⚪")
 
@@ -651,8 +655,6 @@ class TelegramBot:
                         f"{emoji} <b>@{username}</b> — {status}\n📸 Capturing screenshot...",
                         parse_mode="HTML",
                     )
-                import asyncio as _asyncio
-                loop = _asyncio.get_running_loop()
                 screenshot_data = await loop.run_in_executor(
                     None, capture_profile_screenshot, username, self.config, "add"
                 )
@@ -788,7 +790,11 @@ class TelegramBot:
         )
 
         try:
-            result = self.monitor.check_single(username)
+            import asyncio as _asyncio
+            loop = _asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, self.monitor.check_single, username
+            )
             emoji = STATUS_EMOJI.get(result["status"], "⚪")
             transition = "⚡ Yes" if result["transition"] else "— No"
 
@@ -829,7 +835,11 @@ class TelegramBot:
         try:
             from .checker import check_account, capture_profile_screenshot
 
-            result = check_account(username, self.config)
+            import asyncio as _asyncio
+            loop = _asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, check_account, username, self.config
+            )
             status = result["classification"]
             emoji = STATUS_EMOJI.get(status, "⚪")
 
@@ -841,8 +851,6 @@ class TelegramBot:
                     f"🧪 <b>@{username}</b> — {status}\n📸 Capturing screenshot...",
                     parse_mode="HTML",
                 )
-                import asyncio as _asyncio
-                loop = _asyncio.get_running_loop()
                 screenshot_data = await loop.run_in_executor(
                     None, capture_profile_screenshot, username, self.config, "test"
                 )
@@ -857,7 +865,7 @@ class TelegramBot:
                 f"🧪 <b>Test Result</b>",
                 "",
                 f"{emoji} <b>@{username}</b> — {status}",
-                f"🏎 {result.get('latency_ms', 0):.0f}ms · HTTP {result.get('status_code', 'N/A')}",
+                f"🏎 {result.get('latency_ms', 0):.0f}ms · HTTP {result.get('status_code') or 'N/A'}",
             ]
 
             if profile_data:

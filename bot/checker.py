@@ -275,41 +275,42 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
     async def _check():
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=config.playwright.headless)
-            context = await browser.new_context(
-                user_agent=config.user_agent,
-                viewport={"width": 1920, "height": 1080},
-                color_scheme="dark",
-            )
-            page = await context.new_page()
+            try:
+                context = await browser.new_context(
+                    user_agent=config.user_agent,
+                    viewport={"width": 1920, "height": 1080},
+                    color_scheme="dark",
+                )
+                page = await context.new_page()
 
-            await page.emulate_media(color_scheme="dark")
+                await page.emulate_media(color_scheme="dark")
 
-            if config.instagram_auth.enabled:
-                cookies = load_cookies(config.instagram_auth.cookies_path)
-                if cookies:
-                    await page.context.add_cookies(cookies)
+                if config.instagram_auth.enabled:
+                    cookies = load_cookies(config.instagram_auth.cookies_path)
+                    if cookies:
+                        await page.context.add_cookies(cookies)
 
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
-            await page.wait_for_timeout(3000)
+                response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
+                await page.wait_for_timeout(3000)
 
-            latency_ms = (time.time() - start) * 1000
-            result["latency_ms"] = latency_ms
+                latency_ms = (time.time() - start) * 1000
+                result["latency_ms"] = latency_ms
 
-            if response:
-                result["status_code"] = response.status
+                if response:
+                    result["status_code"] = response.status
 
-            page_content = await page.content()
-            result["response_size"] = len(page_content)
-            result["classification"] = classify_playwright_response(page_content, result.get("status_code"))
+                page_content = await page.content()
+                result["response_size"] = len(page_content)
+                result["classification"] = classify_playwright_response(page_content, result.get("status_code"))
 
-            result["raw_response"] = {
-                "url": url,
-                "title": await page.title(),
-                "content_length": len(page_content),
-                "content_preview": page_content[:2000],
-            }
-
-            await browser.close()
+                result["raw_response"] = {
+                    "url": url,
+                    "title": await page.title(),
+                    "content_length": len(page_content),
+                    "content_preview": page_content[:2000],
+                }
+            finally:
+                await browser.close()
 
     try:
         asyncio.run(asyncio.wait_for(_check(), timeout=config.playwright.timeout / 1000))

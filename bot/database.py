@@ -1,7 +1,6 @@
 """SQLite database for the production monitoring bot."""
 
 import os
-import shutil
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -117,7 +116,6 @@ class Database:
         cur = self.conn.cursor()
         cur.execute("SELECT chat_id FROM admins WHERE chat_id IS NOT NULL")
         return [row["chat_id"] for row in cur.fetchall()]
-        self.conn.commit()
 
     def seed_admins(self, usernames: List[str]):
         for u in usernames:
