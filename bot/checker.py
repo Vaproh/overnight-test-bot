@@ -267,6 +267,38 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
     import asyncio
     from playwright.async_api import async_playwright
 
+    async def _dismiss_overlays(page):
+        overlay_buttons = [
+            'button:has-text("Close")',
+            'button:has-text("Decline optional cookies")',
+            'button:has-text("Deny all")',
+            'button:has-text("Reject all")',
+            'button:has-text("Rejeter tout")',
+            'button:has-text("Not now")',
+            'button:has-text("Allow all cookies")',
+            'button:has-text("Allow All Cookies")',
+            'button:has-text("Accept all")',
+            'button:has-text("Accept All")',
+            'button:has-text("Accept cookies")',
+            'button:has-text("Accept")',
+        ]
+        for selector in overlay_buttons:
+            try:
+                btn = page.locator(selector).first
+                if await btn.is_visible(timeout=500):
+                    await btn.click(timeout=1000)
+                    await page.wait_for_timeout(500)
+            except Exception:
+                pass
+
+        try:
+            login_later = page.locator('button:has-text("Log in later"), button:has-text("Not now"), button:has-text("Cancel")').first
+            if await login_later.is_visible(timeout=500):
+                await login_later.click(timeout=1000)
+                await page.wait_for_timeout(500)
+        except Exception:
+            pass
+
     result = {
         "username": username,
         "transport": "playwright",
@@ -310,6 +342,8 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
 
                 response = await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
                 await page.wait_for_timeout(3000)
+
+                await _dismiss_overlays(page)
 
                 latency_ms = (time.time() - start) * 1000
                 result["latency_ms"] = latency_ms
