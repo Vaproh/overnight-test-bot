@@ -106,6 +106,12 @@ class Database:
             cursor.execute("ALTER TABLE accounts ADD COLUMN added_by TEXT")
             self.conn.commit()
 
+        cursor.execute("PRAGMA table_info(accounts)")
+        columns = {row["name"] for row in cursor.fetchall()}
+        if "down_since" not in columns:
+            cursor.execute("ALTER TABLE accounts ADD COLUMN down_since TEXT")
+            self.conn.commit()
+
     def update_admin_chat_id(self, username: str, chat_id: int):
         self.conn.execute(
             "UPDATE admins SET chat_id = ? WHERE username = ?", (chat_id, username)
@@ -279,12 +285,32 @@ class Database:
         row = cursor.fetchone()
         old_status = row["status"] if row else None
 
+        VISIBLE = {"ACTIVE", "SUSPECT"}
+        INVISIBLE = {"MISSING", "ERROR", "RATE_LIMITED"}
+
         if old_status != new_status:
-            cursor.execute("""
-                UPDATE accounts
-                SET status = ?, previous_status = ?, last_check = ?, last_change = ?, check_count = check_count + 1, updated_at = ?
-                WHERE id = ?
-            """, (new_status, old_status, now, now, now, account_id))
+            down_since = None
+            if old_status in VISIBLE and new_status in INVISIBLE:
+                down_since = now
+            elif old_status in INVISIBLE and new_status in VISIBLE:
+                down_since = None
+            elif old_status in INVISIBLE and new_status in INVISIBLE:
+                cursor.execute("SELECT down_since FROM accounts WHERE id = ?", (account_id,))
+                ds_row = cursor.fetchone()
+                down_since = ds_row["down_since"] if ds_row else None
+
+            if down_since is not None:
+                cursor.execute("""
+                    UPDATE accounts
+                    SET status = ?, previous_status = ?, last_check = ?, last_change = ?, down_since = ?, check_count = check_count + 1, updated_at = ?
+                    WHERE id = ?
+                """, (new_status, old_status, now, now, down_since, now, account_id))
+            else:
+                cursor.execute("""
+                    UPDATE accounts
+                    SET status = ?, previous_status = ?, last_check = ?, last_change = ?, down_since = NULL, check_count = check_count + 1, updated_at = ?
+                    WHERE id = ?
+                """, (new_status, old_status, now, now, now, account_id))
         else:
             cursor.execute("""
                 UPDATE accounts
@@ -377,6 +403,18 @@ class Database:
             FROM events e
             JOIN accounts a ON e.account_id = a.id
             ORDER BY e.timestamp DESC
+            LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_recent_errors(self, limit: int = 10) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT c.*, a.username
+            FROM checks c
+            JOIN accounts a ON c.account_id = a.id
+            WHERE c.error_message IS NOT NULL AND c.error_message != ''
+            ORDER BY c.timestamp DESC
             LIMIT ?
         """, (limit,))
         return [dict(row) for row in cursor.fetchall()]

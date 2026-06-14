@@ -128,6 +128,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("backup", self.cmd_backup))
         self.app.add_handler(CommandHandler("listusers", self.cmd_listusers))
         self.app.add_handler(CommandHandler("changelog", self.cmd_changelog))
+        self.app.add_handler(CommandHandler("logs", self.cmd_logs))
 
         self.app.add_handler(CallbackQueryHandler(self._handle_callback))
 
@@ -155,6 +156,7 @@ class TelegramBot:
             BotCommand("removeadmin", "Remove admin (admin)"),
             BotCommand("listusers", "List users (admin)"),
             BotCommand("changelog", "View updates"),
+            BotCommand("logs", "View error logs (admin)"),
         ]
         await application.bot.set_my_commands(commands)
 
@@ -187,6 +189,9 @@ class TelegramBot:
             rows.append([
                 InlineKeyboardButton("🔑 Set Cookie", callback_data="menu:setcookie"),
                 InlineKeyboardButton("💾 Backup", callback_data="menu:backup"),
+            ])
+            rows.append([
+                InlineKeyboardButton("📋 Logs", callback_data="menu:logs"),
             ])
         return InlineKeyboardMarkup(rows)
 
@@ -317,6 +322,11 @@ class TelegramBot:
                 return
             await query.edit_message_text("💾 Creating backup...", parse_mode="HTML")
             await self._do_backup(query.message, update)
+        elif data == "menu:logs":
+            if not is_admin:
+                await query.edit_message_text("⛔ Admin only.", parse_mode="HTML")
+                return
+            await self._handle_logs_callback(query)
 
     async def _handle_status_callback(self, query, update):
         accounts = self._get_accounts_for_user(update)
@@ -443,6 +453,44 @@ class TelegramBot:
                 parse_mode="HTML",
             )
 
+    async def _handle_logs_callback(self, query):
+        lines = ["📋 <b>Recent Errors</b>\n━━━━━━━━━━━━━━━━━━━\n"]
+
+        db_errors = self.db.get_recent_errors(limit=8)
+        if db_errors:
+            for err in db_errors:
+                try:
+                    dt = datetime.fromisoformat(err["timestamp"].replace("Z", "+00:00"))
+                    time_str = dt.strftime("%b %d %H:%M")
+                except Exception:
+                    time_str = err["timestamp"][:16]
+                msg = (err.get("error_message") or "unknown")[:80]
+                lines.append(f"⚫ <b>@{err['username']}</b> — {time_str}")
+                lines.append(f"    <code>{msg}</code>")
+                lines.append("")
+        else:
+            lines.append("✅ No check errors recorded.\n")
+
+        log_path = os.path.join(self.config.logs_dir, "monitor.log")
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    all_lines = f.readlines()
+                error_lines = [l.rstrip() for l in all_lines if "ERROR" in l][-6:]
+                if error_lines:
+                    lines.append("━━━━━━━━━━━━━━━━━━━")
+                    lines.append("<b>Log tail (ERROR):</b>")
+                    lines.append("")
+                    for l in error_lines:
+                        lines.append(f"<code>{l[:120]}</code>")
+            except Exception:
+                lines.append("⚠️ Could not read log file.")
+
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:3900] + "\n\n<i>...truncated</i>"
+        await query.edit_message_text(text, parse_mode="HTML")
+
     # ── Commands ───────────────────────────────────────────────
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -499,6 +547,7 @@ class TelegramBot:
             "🏓 /ping — bot latency\n"
             "🏥 /health — bot status\n"
             "📋 /changelog — view updates\n"
+            "📋 /logs — error logs (admin)\n"
             "━━━━━━━━━━━━━━━━━━━\n"
             "🔑 Admins can manage users & cookies"
         )
@@ -1341,6 +1390,55 @@ class TelegramBot:
                 "/changelog add <code>message</code> — Add update (admin)",
                 parse_mode="HTML",
             )
+
+    async def cmd_logs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._check_access(update):
+            await self._deny(update)
+            return
+
+        if not self._is_admin(update):
+            await update.message.reply_text(
+                "⛔ Only admins can view logs.",
+                parse_mode="HTML",
+            )
+            return
+
+        lines = ["📋 <b>Recent Errors</b>\n━━━━━━━━━━━━━━━━━━━\n"]
+
+        db_errors = self.db.get_recent_errors(limit=8)
+        if db_errors:
+            for err in db_errors:
+                try:
+                    dt = datetime.fromisoformat(err["timestamp"].replace("Z", "+00:00"))
+                    time_str = dt.strftime("%b %d %H:%M")
+                except Exception:
+                    time_str = err["timestamp"][:16]
+                msg = (err.get("error_message") or "unknown")[:80]
+                lines.append(f"⚫ <b>@{err['username']}</b> — {time_str}")
+                lines.append(f"    <code>{msg}</code>")
+                lines.append("")
+        else:
+            lines.append("✅ No check errors recorded.\n")
+
+        log_path = os.path.join(self.config.logs_dir, "monitor.log")
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    all_lines = f.readlines()
+                error_lines = [l.rstrip() for l in all_lines if "ERROR" in l][-6:]
+                if error_lines:
+                    lines.append("━━━━━━━━━━━━━━━━━━━")
+                    lines.append("<b>Log tail (ERROR):</b>")
+                    lines.append("")
+                    for l in error_lines:
+                        lines.append(f"<code>{l[:120]}</code>")
+            except Exception:
+                lines.append("⚠️ Could not read log file.")
+
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:3900] + "\n\n<i>...truncated</i>"
+        await update.message.reply_text(text, parse_mode="HTML")
 
     # ── Notifications ──────────────────────────────────────────
 

@@ -132,7 +132,7 @@ class Monitor:
         new_status = result["classification"]
 
         account_info = self.db.get_account_by_id(account_id)
-        prev_last_change = account_info.get("last_change") if account_info else None
+        down_since = account_info.get("down_since") if account_info else None
 
         self.db.update_account_status(account_id, new_status)
 
@@ -154,7 +154,7 @@ class Monitor:
         is_transition = old_status is not None and old_status != new_status
         if is_transition:
             logger.info(f"TRANSITION: {username} {old_status} -> {new_status}")
-            self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result, prev_last_change)
+            self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result, down_since)
 
         logger.info(
             f"  {username}: {new_status} "
@@ -171,17 +171,14 @@ class Monitor:
             "status_code": result.get("status_code"),
         }
 
-    def _handle_transition(self, account_id: int, username: str, old_status: str, new_status: str, result: dict, prev_last_change: Optional[str] = None):
-        WORKING = {"ACTIVE", "SUSPECT"}
-        NOT_WORKING = {"MISSING", "ERROR", "RATE_LIMITED"}
-
+    def _handle_transition(self, account_id: int, username: str, old_status: str, new_status: str, result: dict, down_since: Optional[str] = None):
         should_notify = False
         verification_result = None
 
-        if old_status in WORKING and new_status in NOT_WORKING:
+        if old_status == "ACTIVE" and new_status == "MISSING":
             should_notify = True
             verification_result = result.get("verification_status", "unverified")
-        elif old_status in NOT_WORKING and new_status in WORKING:
+        elif old_status == "MISSING" and new_status == "ACTIVE":
             should_notify = True
             verification_result = "restored"
 
@@ -195,6 +192,11 @@ class Monitor:
         }
         event_id = self.db.save_event(event_data)
 
+        if should_notify:
+            logger.info(f"NOTIFY: {username} {old_status} -> {new_status}")
+        else:
+            logger.info(f"LOGGED: {username} {old_status} -> {new_status} (no notification)")
+
         if should_notify and self.notify_fn:
             try:
                 screenshot_path = None
@@ -207,7 +209,7 @@ class Monitor:
                     profile_data = screenshot_data.get("profile_data", {})
                     screenshot_error = screenshot_data.get("error")
 
-                duration = self._calc_duration(prev_last_change)
+                duration = self._calc_duration(down_since)
 
                 caption = self._format_notification(
                     username, old_status, new_status,

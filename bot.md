@@ -41,6 +41,7 @@
 | `/backup` | Zip data/ folder and send via Telegram |
 | `/changelog` | View recent changelogs |
 | `/changelog add <msg>` | Add a changelog and broadcast to all users |
+| `/logs` | View recent errors from checks + log file tail |
 
 ## Access Control
 
