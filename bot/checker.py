@@ -223,14 +223,12 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             await page.goto(url, wait_until="domcontentloaded", timeout=config.playwright.timeout)
 
             try:
-                await page.wait_for_selector("header img, header section, main header", timeout=10000)
+                await page.wait_for_selector("header img, header section, main header", timeout=7000)
             except Exception:
-                await page.wait_for_timeout(5000)
+                await page.wait_for_timeout(2000)
 
             await _dismiss_popups(page)
-            await page.wait_for_timeout(1000)
-            await _dismiss_popups(page)
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(500)
 
             profile_data = await _extract_profile_data_async(page)
             result["profile_data"] = profile_data
@@ -289,7 +287,9 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
             await browser.close()
 
     try:
-        asyncio.run(_capture())
+        asyncio.run(asyncio.wait_for(_capture(), timeout=30))
+    except asyncio.TimeoutError:
+        logger.warning(f"Screenshot capture timed out for {username} (30s)")
     except Exception as e:
         logger.error(f"Screenshot capture failed for {username}: {e}")
 
