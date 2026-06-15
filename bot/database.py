@@ -83,6 +83,14 @@ class Database:
                 author TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                message TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
 
     def _migrate(self):
@@ -469,6 +477,37 @@ class Database:
             VALUES (?, ?, ?)
         """, (key, value, now))
         self.conn.commit()
+
+    def save_report(self, username: str, message: str) -> int:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO reports (username, message) VALUES (?, ?)",
+            (username, message),
+        )
+        self.conn.commit()
+        return cursor.lastrowid or 0
+
+    def get_recent_reports(self, limit: int = 10) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM reports ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_report_status(self, report_id: int, status: str):
+        self.conn.execute(
+            "UPDATE reports SET status = ? WHERE id = ?",
+            (status, report_id),
+        )
+        self.conn.commit()
+
+    def get_pending_reports(self) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM reports WHERE status = 'pending' ORDER BY created_at DESC"
+        )
+        return [dict(row) for row in cursor.fetchall()]
 
     def close(self):
         if self.conn:

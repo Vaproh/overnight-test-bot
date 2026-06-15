@@ -36,6 +36,7 @@ class TelegramBot:
         self.app: Optional[Application] = None
         self._admin_notified_cookies = False
         self._pending_changelog: dict = {}
+        self._pending_reports: dict = {}
         self._startup_notified = False
 
     def _get_username(self, update: Update) -> str:
@@ -139,6 +140,8 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("listusers", self.cmd_listusers))
         self.app.add_handler(CommandHandler("changelog", self.cmd_changelog))
         self.app.add_handler(CommandHandler("logs", self.cmd_logs))
+        self.app.add_handler(CommandHandler("report", self.cmd_report))
+        self.app.add_handler(CommandHandler("reports", self.cmd_reports))
         self.app.add_handler(CommandHandler("cancel", self.cmd_cancel))
 
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message))
@@ -169,6 +172,8 @@ class TelegramBot:
             BotCommand("listusers", "👥 List users (admin)"),
             BotCommand("changelog", "📝 View updates"),
             BotCommand("logs", "📄 View error logs (admin)"),
+            BotCommand("report", "🚨 Report an issue"),
+            BotCommand("reports", "📋 View reports (admin)"),
         ]
         await application.bot.set_my_commands(commands)
 
@@ -554,12 +559,14 @@ class TelegramBot:
             "📡 /status — all monitored accounts\n"
             "🔍 /check <code>username</code> — manual check\n"
             "🧪 /test <code>username</code> — test (no monitor)\n"
-            "📸 /screenshot — SS service status\n"
+            "📸 /screenshot — profile card service\n"
             "📊 /proxy — proxy traffic\n"
             "🏓 /ping — bot latency\n"
             "🏥 /health — bot status\n"
-            "📋 /changelog — view updates\n"
-            "📋 /logs — error logs (admin)\n"
+            "🚨 /report — report an issue\n"
+            "📋 /reports — view reports (admin)\n"
+            "📝 /changelog — view updates\n"
+            "📄 /logs — error logs (admin)\n"
             "━━━━━━━━━━━━━━━━━━━\n"
             "🔑 Admins can manage users & cookies"
         )
@@ -570,6 +577,9 @@ class TelegramBot:
         if user_id in self._pending_changelog:
             del self._pending_changelog[user_id]
             await update.message.reply_text("❌ Changelog cancelled.", parse_mode="HTML")
+        elif user_id in self._pending_reports:
+            del self._pending_reports[user_id]
+            await update.message.reply_text("❌ Report cancelled.", parse_mode="HTML")
         else:
             await update.message.reply_text("Nothing to cancel.", parse_mode="HTML")
 
@@ -578,6 +588,46 @@ class TelegramBot:
             return
 
         user_id = update.effective_user.id
+
+        if user_id in self._pending_reports:
+            message = update.message.text
+            if not message or not message.strip():
+                await update.message.reply_text("❌ Empty message. Send your report or /cancel.", parse_mode="HTML")
+                return
+
+            del self._pending_reports[user_id]
+            username = self._get_username(update)
+            report_id = self.db.save_report(username, message)
+
+            await update.message.reply_text(
+                "🚨━━━━━━━━━━━━━━━━━━━🚨\n\n"
+                f"✅ <b>Report #{report_id} Submitted</b>\n\n"
+                f"    Thank you, an admin will review it.\n\n"
+                "🚨━━━━━━━━━━━━━━━━━━━🚨",
+                parse_mode="HTML",
+            )
+
+            admin_chat_ids = self.db.get_admin_chat_ids()
+            sender_chat_id = update.effective_chat.id
+            report_msg = (
+                "🚨━━━━━━━━━━━━━━━━━━━🚨\n\n"
+                f"📩 <b>New Report #{report_id}</b>\n\n"
+                f"    From: <b>@{username}</b>\n"
+                f"    Report: {message}\n\n"
+                "🚨━━━━━━━━━━━━━━━━━━━🚨"
+            )
+            for cid in admin_chat_ids:
+                if cid != sender_chat_id:
+                    try:
+                        await self.app.bot.send_message(
+                            chat_id=cid,
+                            text=report_msg,
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        pass
+            return
+
         if user_id not in self._pending_changelog:
             return
 
@@ -1552,6 +1602,58 @@ class TelegramBot:
         if len(text) > 4000:
             text = text[:3900] + "\n\n<i>...truncated</i>"
         await update.message.reply_text(text, parse_mode="HTML")
+
+    async def cmd_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._check_access(update):
+            await self._deny(update)
+            return
+
+        user_id = update.effective_user.id
+        self._pending_reports[user_id] = True
+        await update.message.reply_text(
+            "🚨━━━━━━━━━━━━━━━━━━━🚨\n\n"
+            "📝 <b>Send me your report</b>\n\n"
+            "    Describe the issue and send it.\n"
+            "    Use /cancel to abort.\n\n"
+            "🚨━━━━━━━━━━━━━━━━━━━🚨",
+            parse_mode="HTML",
+        )
+
+    async def cmd_reports(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._check_access(update):
+            await self._deny(update)
+            return
+
+        if not self._is_admin(update):
+            await update.message.reply_text(
+                "⛔ Only admins can view reports.",
+                parse_mode="HTML",
+            )
+            return
+
+        reports = self.db.get_recent_reports(limit=10)
+
+        lines = [
+            "🚨━━━━━━━━━━━━━━━━━━━🚨\n",
+            "📋 <b>Recent Reports</b>\n",
+        ]
+
+        if reports:
+            for r in reports:
+                try:
+                    dt = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+                    time_str = dt.strftime("%b %d %H:%M")
+                except Exception:
+                    time_str = r["created_at"][:16]
+                status_emoji = "🟡" if r["status"] == "pending" else "✅"
+                lines.append(f"{status_emoji} <b>#{r['id']}</b> — @{r['username']} — {time_str}")
+                lines.append(f"    {r['message'][:100]}")
+                lines.append("")
+        else:
+            lines.append("✅ No reports yet.\n")
+
+        lines.append("🚨━━━━━━━━━━━━━━━━━━━🚨")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
     # ── Notifications ──────────────────────────────────────────
 
