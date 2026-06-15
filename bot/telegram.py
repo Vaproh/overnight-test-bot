@@ -751,7 +751,7 @@ class TelegramBot:
 
     async def _do_check_and_reply(self, update: Update, username: str, status_msg=None):
         try:
-            from .checker import check_account, capture_profile_screenshot
+            from .checker import check_account, generate_profile_card
 
             import asyncio as _asyncio
             loop = _asyncio.get_running_loop()
@@ -767,11 +767,11 @@ class TelegramBot:
             if status == "ACTIVE":
                 if status_msg:
                     await status_msg.edit_text(
-                        f"{emoji} <b>@{username}</b> — {status}\n📸 Capturing screenshot...",
+                        f"{emoji} <b>@{username}</b> — {status}\n📸 Generating profile card...",
                         parse_mode="HTML",
                     )
                 screenshot_data = await loop.run_in_executor(
-                    None, capture_profile_screenshot, username, self.config, "add"
+                    None, generate_profile_card, username, self.config, "add"
                 )
                 screenshot_path = screenshot_data.get("screenshot_path")
                 profile_data = screenshot_data.get("profile_data", {})
@@ -948,7 +948,7 @@ class TelegramBot:
         )
 
         try:
-            from .checker import check_account, capture_profile_screenshot
+            from .checker import check_account, generate_profile_card
 
             import asyncio as _asyncio
             loop = _asyncio.get_running_loop()
@@ -963,11 +963,11 @@ class TelegramBot:
             screenshot_error = None
             if status == "ACTIVE":
                 await status_msg.edit_text(
-                    f"🧪 <b>@{username}</b> — {status}\n📸 Capturing screenshot...",
+                    f"🧪 <b>@{username}</b> — {status}\n📸 Generating profile card...",
                     parse_mode="HTML",
                 )
                 screenshot_data = await loop.run_in_executor(
-                    None, capture_profile_screenshot, username, self.config, "test"
+                    None, generate_profile_card, username, self.config, "test"
                 )
                 screenshot_path = screenshot_data.get("screenshot_path")
                 profile_data = screenshot_data.get("profile_data", {})

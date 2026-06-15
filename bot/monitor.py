@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from .checker import check_account, verify_with_service, capture_profile_screenshot
+from .checker import check_account, verify_with_service, generate_profile_card
 from .config import Config
 from .database import Database
 
@@ -204,7 +204,7 @@ class Monitor:
                 profile_data = {}
 
                 if new_status == "ACTIVE":
-                    screenshot_data = capture_profile_screenshot(username, self.config, new_status.lower())
+                    screenshot_data = generate_profile_card(username, self.config, new_status.lower())
                     screenshot_path = screenshot_data.get("screenshot_path")
                     profile_data = screenshot_data.get("profile_data", {})
                     screenshot_error = screenshot_data.get("error")

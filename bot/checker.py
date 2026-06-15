@@ -152,7 +152,7 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
     return result
 
 
-def capture_profile_screenshot(username: str, config: Config, status: str = "unknown") -> dict:
+def generate_profile_card(username: str, config: Config, status: str = "unknown") -> dict:
     result = {
         "screenshot_path": None,
         "profile_data": {},
@@ -162,7 +162,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
     service_url = config.screenshot_service_url
     if not service_url:
         result["error"] = "no_service"
-        logger.warning("No screenshot_service_url configured, skipping screenshot")
+        logger.warning("No screenshot_service_url configured, skipping profile card")
         return result
 
     try:
@@ -184,7 +184,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                     f.write(resp.content)
 
                 result["screenshot_path"] = screenshot_path
-                logger.info(f"Profile card captured for {username}")
+                logger.info(f"Profile card generated for {username}")
             else:
                 result["error"] = "not_image"
                 logger.warning(f"Profile card service returned non-image for {username}")
