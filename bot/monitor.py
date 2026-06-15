@@ -228,11 +228,11 @@ class Monitor:
                     self.notify_photo_fn(screenshot_path, caption)
                 elif screenshot_error:
                     error_reasons = {
-                        "profile_unavailable": "Profile deactivated or doesn't exist",
-                        "service_down": "SS service down (Camofox offline)",
-                        "timeout": "Page load timed out",
-                        "rate_limited": "SS service rate limited",
-                        "connection_refused": "SS service unreachable",
+                        "profile_unavailable": "Profile unavailable or doesn't exist",
+                        "service_down": "Profile card service error",
+                        "timeout": "Service timed out",
+                        "rate_limited": "Service rate limited",
+                        "connection_refused": "Profile card service unreachable",
                     }
                     reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
                     fallback = (

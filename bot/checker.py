@@ -166,7 +166,7 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
         return result
 
     try:
-        url = f"{service_url.rstrip('/')}/screenshot/{username}"
+        url = f"{service_url.rstrip('/')}/profile/{username}"
         resp = _requests.get(url, timeout=30)
 
         if resp.status_code == 200:
@@ -184,38 +184,35 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
                     f.write(resp.content)
 
                 result["screenshot_path"] = screenshot_path
-                logger.info(f"Screenshot captured for {username} via service")
+                logger.info(f"Profile card captured for {username}")
             else:
                 result["error"] = "not_image"
-                logger.warning(f"Screenshot service returned non-image for {username}")
+                logger.warning(f"Profile card service returned non-image for {username}")
         elif resp.status_code == 404:
             result["error"] = "profile_unavailable"
-            logger.info(f"Screenshot service: profile unavailable for {username}")
+            logger.info(f"Profile card service: profile unavailable for {username}")
         elif resp.status_code == 400:
             result["error"] = "invalid_username"
-            logger.warning(f"Screenshot service: invalid username for {username}")
+            logger.warning(f"Profile card service: invalid username for {username}")
         elif resp.status_code == 429:
             result["error"] = "rate_limited"
-            logger.warning(f"Screenshot service: rate limited for {username}")
-        elif resp.status_code == 503:
+            logger.warning(f"Profile card service: rate limited for {username}")
+        elif resp.status_code == 500:
             result["error"] = "service_down"
-            logger.error(f"Screenshot service: Camofox not available")
-        elif resp.status_code == 504:
-            result["error"] = "timeout"
-            logger.error(f"Screenshot service: page load timeout for {username}")
+            logger.error(f"Profile card service: internal error")
         else:
             result["error"] = f"http_{resp.status_code}"
-            logger.warning(f"Screenshot service returned {resp.status_code} for {username}")
+            logger.warning(f"Profile card service returned {resp.status_code} for {username}")
 
     except _requests.exceptions.ConnectionError:
         result["error"] = "connection_refused"
-        logger.error(f"Screenshot service unreachable at {service_url}")
+        logger.error(f"Profile card service unreachable at {service_url}")
     except _requests.exceptions.Timeout:
         result["error"] = "timeout"
-        logger.error(f"Screenshot service timed out for {username}")
+        logger.error(f"Profile card service timed out for {username}")
     except Exception as e:
         result["error"] = "unknown"
-        logger.error(f"Screenshot service error for {username}: {e}")
+        logger.error(f"Profile card service error for {username}: {e}")
 
     return result
 

@@ -1054,13 +1054,13 @@ class TelegramBot:
         service_url = self.config.screenshot_service_url
         if not service_url:
             await update.message.reply_text(
-                "⚠️ <b>SS Service not configured</b>\n\n"
+                "⚠️ <b>Profile Card Service not configured</b>\n\n"
                 "Set <code>screenshot_service_url</code> in config.yaml",
                 parse_mode="HTML",
             )
             return
 
-        msg = await update.message.reply_text("📸 Checking SS service...")
+        msg = await update.message.reply_text("📸 Checking profile card service...")
 
         try:
             import requests as _requests
@@ -1070,31 +1070,29 @@ class TelegramBot:
 
             if resp.status_code == 200:
                 data = resp.json()
-                camofox = data.get("camofox", False)
                 status = data.get("status", "unknown")
-                emoji = "🟢" if camofox else "🔴"
-                camofox_text = "Online" if camofox else "Offline"
+                emoji = "🟢" if status == "healthy" else "🔴"
                 await msg.edit_text(
-                    f"📸 <b>SS Service</b>\n"
+                    f"📸 <b>Profile Card Service</b>\n"
                     "━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"{emoji} {status} · Camofox: {camofox_text}\n"
+                    f"{emoji} {status}\n"
                     f"⚡ {latency:.0f}ms\n"
                     f"🔗 <code>{service_url}</code>",
                     parse_mode="HTML",
                 )
             else:
                 await msg.edit_text(
-                    f"🔴 <b>SS Unhealthy</b>\n\nHTTP {resp.status_code}",
+                    f"🔴 <b>Service Unhealthy</b>\n\nHTTP {resp.status_code}",
                     parse_mode="HTML",
                 )
         except _requests.exceptions.ConnectionError:
             await msg.edit_text(
-                f"🔴 <b>SS Offline</b>\n\n<code>{service_url}</code>",
+                f"🔴 <b>Service Offline</b>\n\n<code>{service_url}</code>",
                 parse_mode="HTML",
             )
         except _requests.exceptions.Timeout:
             await msg.edit_text(
-                f"🔴 <b>SS Timeout</b>\n\n<code>{service_url}</code>",
+                f"🔴 <b>Service Timeout</b>\n\n<code>{service_url}</code>",
                 parse_mode="HTML",
             )
         except Exception as e:
