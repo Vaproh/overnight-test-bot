@@ -286,7 +286,7 @@ class Monitor:
         }
 
         emoji = STATUS_EMOJI.get(new_status, "⚪")
-        divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
+        divider = f"{emoji}━━━━━━━━━━━━━{emoji}"
 
         if new_status == "MISSING":
             alert = "🔴 ACCOUNT MISSING"

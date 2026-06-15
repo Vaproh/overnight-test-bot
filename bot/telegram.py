@@ -317,7 +317,7 @@ class TelegramBot:
                     parse_mode="HTML",
                 )
                 return
-            lines = ["📋 <b>Recent Updates</b>\n━━━━━━━━━━━━━━━━━━━"]
+            lines = ["📋 <b>Recent Updates</b>\n━━━━━━━━━━━━━"]
             for cl in changelogs:
                 try:
                     dt = datetime.fromisoformat(cl["created_at"].replace("Z", "+00:00"))
@@ -356,7 +356,7 @@ class TelegramBot:
         lines = [
             f"📡 <b>{len(accounts)} Accounts Monitored</b>",
             f"🟢 {active} active · 🔴 {missing} missing · 🟡 {suspect} suspect · ⚪ {other} other",
-            "━━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━",
             "",
         ]
         for a in accounts:
@@ -405,7 +405,7 @@ class TelegramBot:
 
             text = (
                 "📊 <b>Proxy Stats</b>\n"
-                "━━━━━━━━━━━━━━━━━━━\n\n"
+                "━━━━━━━━━━━━━\n\n"
                 f"📦 Total: {fmt(total)}\n"
                 f"📤 Used: {fmt(used)} ({pct:.1f}%)\n"
                 f"📥 Left: {fmt(left)}\n\n"
@@ -438,7 +438,7 @@ class TelegramBot:
                 camofox_text = "Online" if camofox else "Offline"
                 await query.edit_message_text(
                     f"📸 <b>Screenshot Service</b>\n"
-                    "━━━━━━━━━━━━━━━━━━━\n\n"
+                    "━━━━━━━━━━━━━\n\n"
                     f"{emoji} {status} · Camofox: {camofox_text}\n"
                     f"⚡ {latency:.0f}ms\n"
                     f"🔗 <code>{service_url}</code>",
@@ -466,7 +466,7 @@ class TelegramBot:
             )
 
     async def _handle_logs_callback(self, query):
-        lines = ["📋 <b>Recent Errors</b>\n━━━━━━━━━━━━━━━━━━━\n"]
+        lines = ["📋 <b>Recent Errors</b>\n━━━━━━━━━━━━━\n"]
 
         db_errors = self.db.get_recent_errors(limit=8)
         if db_errors:
@@ -491,7 +491,7 @@ class TelegramBot:
                     all_lines = f.readlines()
                 error_lines = [l.rstrip() for l in all_lines if "ERROR" in l][-6:]
                 if error_lines:
-                    lines.append("━━━━━━━━━━━━━━━━━━━")
+                    lines.append("━━━━━━━━━━━━━")
                     lines.append("<b>Log tail (ERROR):</b>")
                     lines.append("")
                     for l in error_lines:
@@ -517,7 +517,7 @@ class TelegramBot:
 
         text = (
             "📸 <b>Instagram Monitor</b>\n"
-            "━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━━\n\n"
             f"📡 {len(accounts)} accounts · "
             f"🟢 {active} active · 🔴 {missing} missing\n\n"
             "• /add <code>username</code> — start monitoring\n"
@@ -525,7 +525,7 @@ class TelegramBot:
             "• /status — view all accounts\n"
             "• /test <code>username</code> — test without monitoring\n"
             "• /mainmenu — menu with buttons\n"
-            "━━━━━━━━━━━━━━━━━━━"
+            "━━━━━━━━━━━━━"
         )
         kb = self._build_main_menu(self._is_admin(update))
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
@@ -537,7 +537,7 @@ class TelegramBot:
 
         kb = self._build_main_menu(self._is_admin(update))
         await update.message.reply_text(
-            "📋 <b>Main Menu</b>\n━━━━━━━━━━━━━━━━━━━",
+            "📋 <b>Main Menu</b>\n━━━━━━━━━━━━━",
             parse_mode="HTML",
             reply_markup=kb,
         )
@@ -549,7 +549,7 @@ class TelegramBot:
 
         text = (
             "📖 <b>Commands</b>\n"
-            "━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━━\n\n"
             "➕ /add <code>username</code> — monitor account\n"
             "➖ /remove <code>username</code> — stop monitoring\n"
             "📡 /status — all monitored accounts\n"
@@ -563,7 +563,7 @@ class TelegramBot:
             "📋 /reports — view reports (admin)\n"
             "📝 /changelog — view updates\n"
             "📄 /logs — error logs (admin)\n"
-            "━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━\n"
             "🔑 Admins can manage users & cookies"
         )
         await update.message.reply_text(text, parse_mode="HTML")
@@ -596,21 +596,21 @@ class TelegramBot:
             report_id = self.db.save_report(username, message)
 
             await update.message.reply_text(
-                "🚨━━━━━━━━━━━━━━━━━━━🚨\n\n"
+                "🚨━━━━━━━━━━━━━🚨\n\n"
                 f"✅ <b>Report #{report_id} Submitted</b>\n\n"
                 f"    Thank you, an admin will review it.\n\n"
-                "🚨━━━━━━━━━━━━━━━━━━━🚨",
+                "🚨━━━━━━━━━━━━━🚨",
                 parse_mode="HTML",
             )
 
             admin_chat_ids = self.db.get_admin_chat_ids()
             sender_chat_id = update.effective_chat.id
             report_msg = (
-                "🚨━━━━━━━━━━━━━━━━━━━🚨\n\n"
+                "🚨━━━━━━━━━━━━━🚨\n\n"
                 f"📩 <b>New Report #{report_id}</b>\n\n"
                 f"    From: <b>@{username}</b>\n"
                 f"    Report: {message}\n\n"
-                "🚨━━━━━━━━━━━━━━━━━━━🚨"
+                "🚨━━━━━━━━━━━━━🚨"
             )
             for cid in admin_chat_ids:
                 if cid != sender_chat_id:
@@ -650,7 +650,7 @@ class TelegramBot:
         sender_chat_id = update.effective_chat.id
         broadcast = (
             f"📢 <b>New Update</b>\n"
-            "━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━━\n\n"
             f"{message}\n\n"
             f"— @{author}"
         )
@@ -679,7 +679,7 @@ class TelegramBot:
         recent_checks = self.db.get_recent_checks(limit=3)
 
         lines = [
-            "🏥 <b>Health</b>\n━━━━━━━━━━━━━━━━━━━\n",
+            "🏥 <b>Health</b>\n━━━━━━━━━━━━━\n",
             f"⏱ Uptime: {self.monitor.get_uptime()}",
             f"📡 {len(accounts)} accounts · 🟢 {active} · 🔴 {missing} · 🟡 {suspect} · ⚪ {other}",
         ]
@@ -711,7 +711,7 @@ class TelegramBot:
         lines = [
             f"📡 <b>{len(accounts)} Accounts</b>",
             f"🟢 {active} active · 🔴 {missing} missing",
-            "━━━━━━━━━━━━━━━━━━━\n",
+            "━━━━━━━━━━━━━\n",
         ]
         for a in accounts:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
@@ -741,7 +741,7 @@ class TelegramBot:
         lines = [
             f"📡 <b>{len(accounts)} Accounts Monitored</b>",
             f"🟢 {active} active · 🔴 {missing} missing · 🟡 {suspect} suspect · ⚪ {other} other",
-            "━━━━━━━━━━━━━━━━━━━\n",
+            "━━━━━━━━━━━━━\n",
         ]
         for a in accounts:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
@@ -791,10 +791,10 @@ class TelegramBot:
 
         self.db.get_or_create_account(username, added_by)
         status_msg = await update.message.reply_text(
-            f"➕━━━━━━━━━━━━━━━━━━━➕\n\n"
+            f"➕━━━━━━━━━━━━━➕\n\n"
             f"🔍 <b>Adding</b> <a href=\"https://www.instagram.com/{username}/\">@{username}</a>\n\n"
             f"    Checking status...\n\n"
-            f"➕━━━━━━━━━━━━━━━━━━━➕",
+            f"➕━━━━━━━━━━━━━➕",
             parse_mode="HTML",
         )
 
@@ -875,7 +875,7 @@ class TelegramBot:
 
     def _format_profile_card(self, username: str, status: str, profile_data: dict = None) -> str:
         emoji = STATUS_EMOJI.get(status, "⚪")
-        divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
+        divider = f"{emoji}━━━━━━━━━━━━━━{emoji}"
 
         lines = [
             divider,
@@ -933,10 +933,10 @@ class TelegramBot:
 
         self.db.remove_account(username)
         await update.message.reply_text(
-            f"➖━━━━━━━━━━━━━━━━━━━➖\n\n"
+            f"➖━━━━━━━━━━━━━➖\n\n"
             f"🗑 <b>Account Removed</b>\n\n"
             f"    <a href=\"https://www.instagram.com/{username}/\">@{username}</a> removed from monitoring\n\n"
-            f"➖━━━━━━━━━━━━━━━━━━━➖",
+            f"➖━━━━━━━━━━━━━➖",
             parse_mode="HTML",
         )
 
@@ -969,7 +969,7 @@ class TelegramBot:
 
             text = (
                 f"🔍 <a href=\"https://www.instagram.com/{username}/\">@{username}</a>\n"
-                "━━━━━━━━━━━━━━━━━━━\n\n"
+                "━━━━━━━━━━━━━\n\n"
                 f"{emoji} <b>{result['status']}</b>\n"
                 f"Previous: {result.get('old_status', 'N/A')}\n"
                 f"Transition: {transition}\n"
@@ -1038,7 +1038,7 @@ class TelegramBot:
                 profile_data = screenshot_data.get("profile_data", {})
                 screenshot_error = screenshot_data.get("error")
 
-            divider = f"{emoji}━━━━━━━━━━━━━━━━━━━━{emoji}"
+            divider = f"{emoji}━━━━━━━━━━━━━━{emoji}"
             lines = [
                 divider,
                 "",
@@ -1139,7 +1139,7 @@ class TelegramBot:
                 emoji = "🟢" if status == "healthy" else "🔴"
                 await msg.edit_text(
                     f"📸 <b>Profile Card Service</b>\n"
-                    "━━━━━━━━━━━━━━━━━━━\n\n"
+                    "━━━━━━━━━━━━━\n\n"
                     f"{emoji} {status}\n"
                     f"⚡ {latency:.0f}ms\n"
                     f"🔗 <code>{service_url}</code>",
@@ -1224,7 +1224,7 @@ class TelegramBot:
 
             text = (
                 "📊 <b>Proxy Stats</b>\n"
-                "━━━━━━━━━━━━━━━━━━━\n\n"
+                "━━━━━━━━━━━━━\n\n"
                 f"📦 Total: {fmt_bytes(total_bytes)}\n"
                 f"📤 Used: {fmt_bytes(used_bytes)} ({pct_used:.1f}%)\n"
                 f"📥 Left: {fmt_bytes(left_bytes)}\n\n"
@@ -1257,10 +1257,10 @@ class TelegramBot:
         chat_id = update.effective_chat.id if update.effective_chat else None
         if self.db.add_admin(username, chat_id):
             await update.message.reply_text(
-                f"🔑━━━━━━━━━━━━━━━━━━━🔑\n\n"
+                f"🔑━━━━━━━━━━━━━🔑\n\n"
                 f"👑 <b>New Admin Added</b>\n\n"
                 f"    <b>@{username}</b>\n\n"
-                f"🔑━━━━━━━━━━━━━━━━━━━🔑",
+                f"🔑━━━━━━━━━━━━━🔑",
                 parse_mode="HTML",
             )
         else:
@@ -1289,10 +1289,10 @@ class TelegramBot:
 
         if self.db.remove_admin(username):
             await update.message.reply_text(
-                f"🔑━━━━━━━━━━━━━━━━━━━🔑\n\n"
+                f"🔑━━━━━━━━━━━━━🔑\n\n"
                 f"🚫 <b>Admin Removed</b>\n\n"
                 f"    <b>@{username}</b>\n\n"
-                f"🔑━━━━━━━━━━━━━━━━━━━🔑",
+                f"🔑━━━━━━━━━━━━━🔑",
                 parse_mode="HTML",
             )
         else:
@@ -1317,10 +1317,10 @@ class TelegramBot:
         chat_id = update.effective_chat.id if update.effective_chat else None
         if self.db.add_allowed_user(username, chat_id):
             await update.message.reply_text(
-                f"👤━━━━━━━━━━━━━━━━━━━👤\n\n"
+                f"👤━━━━━━━━━━━━━👤\n\n"
                 f"✅ <b>User Added</b>\n\n"
                 f"    <b>@{username}</b> can now use the bot\n\n"
-                f"👤━━━━━━━━━━━━━━━━━━━👤",
+                f"👤━━━━━━━━━━━━━👤",
                 parse_mode="HTML",
             )
         else:
@@ -1344,10 +1344,10 @@ class TelegramBot:
         username = context.args[0].lstrip("@")
         if self.db.remove_allowed_user(username):
             await update.message.reply_text(
-                f"👤━━━━━━━━━━━━━━━━━━━👤\n\n"
+                f"👤━━━━━━━━━━━━━👤\n\n"
                 f"🚫 <b>User Removed</b>\n\n"
                 f"    <b>@{username}</b> can no longer use the bot\n\n"
-                f"👤━━━━━━━━━━━━━━━━━━━👤",
+                f"👤━━━━━━━━━━━━━👤",
                 parse_mode="HTML",
             )
         else:
@@ -1366,7 +1366,7 @@ class TelegramBot:
 
         lines = [
             "👥 <b>Access Control</b>",
-            "━━━━━━━━━━━━━━━━━━━\n",
+            "━━━━━━━━━━━━━\n",
             "🔑 <b>Admins:</b>",
         ]
         for a in admins:
@@ -1496,7 +1496,7 @@ class TelegramBot:
                 )
                 return
 
-            lines = ["📋 <b>Recent Updates</b>\n━━━━━━━━━━━━━━━━━━━"]
+            lines = ["📋 <b>Recent Updates</b>\n━━━━━━━━━━━━━"]
             for cl in changelogs:
                 try:
                     dt = datetime.fromisoformat(cl["created_at"].replace("Z", "+00:00"))
@@ -1530,7 +1530,7 @@ class TelegramBot:
                 sender_chat_id = update.effective_chat.id
                 broadcast = (
                     f"📢 <b>New Update</b>\n"
-                    "━━━━━━━━━━━━━━━━━━━\n\n"
+                    "━━━━━━━━━━━━━\n\n"
                     f"{message}\n\n"
                     f"— @{author}"
                 )
@@ -1575,7 +1575,7 @@ class TelegramBot:
             )
             return
 
-        lines = ["📋 <b>Recent Errors</b>\n━━━━━━━━━━━━━━━━━━━\n"]
+        lines = ["📋 <b>Recent Errors</b>\n━━━━━━━━━━━━━\n"]
 
         db_errors = self.db.get_recent_errors(limit=8)
         if db_errors:
@@ -1599,7 +1599,7 @@ class TelegramBot:
                     all_lines = f.readlines()
                 error_lines = [l.rstrip() for l in all_lines if "ERROR" in l][-6:]
                 if error_lines:
-                    lines.append("━━━━━━━━━━━━━━━━━━━")
+                    lines.append("━━━━━━━━━━━━━")
                     lines.append("<b>Log tail (ERROR):</b>")
                     lines.append("")
                     for l in error_lines:
@@ -1620,11 +1620,11 @@ class TelegramBot:
         user_id = update.effective_user.id
         self._pending_reports[user_id] = True
         await update.message.reply_text(
-            "🚨━━━━━━━━━━━━━━━━━━━🚨\n\n"
+            "🚨━━━━━━━━━━━━━🚨\n\n"
             "📝 <b>Send me your report</b>\n\n"
             "    Describe the issue and send it.\n"
             "    Use /cancel to abort.\n\n"
-            "🚨━━━━━━━━━━━━━━━━━━━🚨",
+            "🚨━━━━━━━━━━━━━🚨",
             parse_mode="HTML",
         )
 
@@ -1643,7 +1643,7 @@ class TelegramBot:
         reports = self.db.get_recent_reports(limit=10)
 
         lines = [
-            "🚨━━━━━━━━━━━━━━━━━━━🚨\n",
+            "🚨━━━━━━━━━━━━━🚨\n",
             "📋 <b>Recent Reports</b>\n",
         ]
 
@@ -1661,7 +1661,7 @@ class TelegramBot:
         else:
             lines.append("✅ No reports yet.\n")
 
-        lines.append("🚨━━━━━━━━━━━━━━━━━━━🚨")
+        lines.append("🚨━━━━━━━━━━━━━🚨")
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
     # ── Notifications ──────────────────────────────────────────
@@ -1839,8 +1839,8 @@ class TelegramBot:
             return
         self._startup_notified = True
         self.shutdown_notify(
-            "🟢━━━━━━━━━━━━━━━━━━━━🟢\n\n"
+            "🟢━━━━━━━━━━━━━━🟢\n\n"
             "🟢 <b>Bot Started</b>\n\n"
             "    Instagram Monitor is now online\n\n"
-            "🟢━━━━━━━━━━━━━━━━━━━━🟢"
+            "🟢━━━━━━━━━━━━━━🟢"
         )
