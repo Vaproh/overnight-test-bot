@@ -19,11 +19,9 @@ logger = logging.getLogger("ig_checker")
 app = FastAPI(title="Instagram Profile Checker")
 
 PROXY = {
-    "server": "http://gw.dataimpulse.com:823",
-    "username": "16a3e39e47a109ce0c47",
-    "password": "c12373c2d7f5e5ff",
+    "server": "http://127.0.0.1:8888",
 }
-USE_PROXY = False  # Proxy returns 407 without Proxy-Authenticate header — Chromium can't handle it. Works without proxy from this server.
+USE_PROXY = True  # Uses local proxy_wrapper.py which adds auth for upstream DataImpulse
 
 STEALTH_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', { get: () => false });
@@ -85,8 +83,6 @@ async def check_profile(username: str) -> dict:
             if USE_PROXY and PROXY.get("server"):
                 proxy_settings = {
                     "server": PROXY["server"],
-                    "username": PROXY["username"],
-                    "password": PROXY["password"],
                 }
             context = await browser.new_context(
                 viewport=VIEWPORT,
