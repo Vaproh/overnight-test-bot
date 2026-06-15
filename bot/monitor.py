@@ -124,7 +124,11 @@ class Monitor:
 
         result = check_account(username, self.config)
 
-        if result["classification"] == "MISSING":
+        account_id = self.db.get_or_create_account(username)
+        account_info = self.db.get_account_by_id(account_id)
+        check_count = account_info.get("check_count", 0) if account_info else 0
+
+        if result["classification"] == "MISSING" and check_count >= 2:
             for retry in range(2):
                 logger.info(f"Retrying curl for {username} (retry {retry + 1}/2)")
                 time.sleep(5)
@@ -137,13 +141,10 @@ class Monitor:
             if result["classification"] == "MISSING":
                 result = verify_with_service(username, result, self.config)
 
-        account_id = self.db.get_or_create_account(username)
         old_status = self.db.get_account_status(username)
         new_status = result["classification"]
 
-        account_info = self.db.get_account_by_id(account_id)
         down_since = account_info.get("down_since") if account_info else None
-        check_count = account_info.get("check_count", 0) if account_info else 0
 
         self.db.update_account_status(account_id, new_status)
 

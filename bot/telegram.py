@@ -743,7 +743,9 @@ class TelegramBot:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
             last = self._fmt_time_ago(a.get("last_check"))
             count = a.get("check_count", 0)
-            lines.append(f"{emoji} <b>@{a['username']}</b>")
+            username = a['username']
+            profile_link = f"<a href=\"https://www.instagram.com/{username}/\">@{username}</a>"
+            lines.append(f"{emoji} {profile_link}")
             lines.append(f"    {a['status']} · checked {last} · {count}x")
             lines.append("")
 
