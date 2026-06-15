@@ -42,6 +42,7 @@ def main():
     monitor = Monitor(config, db)
 
     telegram_bot = None
+    _shutdown_sent = False
     if config.telegram_token:
         telegram_bot = TelegramBot(config, db, monitor)
         telegram_bot.build()
@@ -51,6 +52,10 @@ def main():
         monitor.notify_photo_to_chat_ids = telegram_bot.notify_photo_to_chat_ids
 
     def shutdown(signum, frame):
+        nonlocal _shutdown_sent
+        if _shutdown_sent:
+            return
+        _shutdown_sent = True
         logger.info(f"Received signal {signum}, shutting down...")
         monitor.stop()
         if telegram_bot:
