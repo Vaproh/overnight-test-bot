@@ -303,7 +303,7 @@ class Monitor:
             "",
             alert,
             "",
-            f"{emoji} <b>@{username}</b>",
+            f"{emoji} <a href=\"https://www.instagram.com/{username}/\">@{username}</a>",
             f"    {old_status} → {new_status}",
         ]
 

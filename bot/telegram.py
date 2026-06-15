@@ -235,7 +235,8 @@ class TelegramBot:
             lines = ["➖ <b>Send /remove username</b>\n"]
             for a in accounts:
                 emoji = STATUS_EMOJI.get(a["status"], "⚪")
-                lines.append(f"{emoji} @{a['username']}")
+                u = a['username']
+                lines.append(f"{emoji} <a href=\"https://www.instagram.com/{u}/\">@{u}</a>")
             await query.edit_message_text("\n".join(lines), parse_mode="HTML")
         elif data == "menu:check":
             accounts = self._get_accounts_for_user(update)
@@ -248,7 +249,8 @@ class TelegramBot:
             lines = ["🔍 <b>Send /check username</b>\n"]
             for a in accounts:
                 emoji = STATUS_EMOJI.get(a["status"], "⚪")
-                lines.append(f"{emoji} @{a['username']}")
+                u = a['username']
+                lines.append(f"{emoji} <a href=\"https://www.instagram.com/{u}/\">@{u}</a>")
             await query.edit_message_text("\n".join(lines), parse_mode="HTML")
         elif data == "menu:test":
             await query.edit_message_text(
@@ -361,7 +363,8 @@ class TelegramBot:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
             last = self._fmt_time_ago(a.get("last_check"))
             count = a.get("check_count", 0)
-            lines.append(f"{emoji} <b>@{a['username']}</b>")
+            u = a['username']
+            lines.append(f"{emoji} <a href=\"https://www.instagram.com/{u}/\">@{u}</a>")
             lines.append(f"    {a['status']} · checked {last} · {count}x")
             lines.append("")
 
@@ -474,7 +477,8 @@ class TelegramBot:
                 except Exception:
                     time_str = err["timestamp"][:16]
                 msg = (err.get("error_message") or "unknown")[:80]
-                lines.append(f"⚫ <b>@{err['username']}</b> — {time_str}")
+                eu = err['username']
+                lines.append(f"⚫ <a href=\"https://www.instagram.com/{eu}/\">@{eu}</a> — {time_str}")
                 lines.append(f"    <code>{msg}</code>")
                 lines.append("")
         else:
@@ -684,7 +688,7 @@ class TelegramBot:
             lines.append("\n<b>Last checks:</b>")
             for c in recent_checks:
                 emoji = STATUS_EMOJI.get(c["status"], "⚪")
-                lines.append(f"  {emoji} @{c['username']} {c['status']} ({c['latency_ms']:.0f}ms)")
+                lines.append(f"  {emoji} <a href=\"https://www.instagram.com/{c['username']}/\">@{c['username']}</a> {c['status']} ({c['latency_ms']:.0f}ms)")
 
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
@@ -712,7 +716,7 @@ class TelegramBot:
         for a in accounts:
             emoji = STATUS_EMOJI.get(a["status"], "⚪")
             last = self._fmt_time_ago(a.get("last_check"))
-            lines.append(f"{emoji} @{a['username']}  ·  {last}")
+            lines.append(f"{emoji} <a href=\"https://www.instagram.com/{a['username']}/\">@{a['username']}</a>  ·  {last}")
 
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
@@ -772,14 +776,14 @@ class TelegramBot:
             existing_owner = self.db.get_account_added_by(username)
             if existing_owner and existing_owner != added_by and not is_admin:
                 await update.message.reply_text(
-                    f"🔒 <b>@{username}</b> is already monitored by @{existing_owner}.\n\n"
+                    f"🔒 <a href=\"https://www.instagram.com/{username}/\">@{username}</a> is already monitored by <a href=\"https://www.instagram.com/{existing_owner}/\">@{existing_owner}</a>.\n\n"
                     f"Ask an admin to reassign it.",
                     parse_mode="HTML",
                 )
                 return
             else:
                 await update.message.reply_text(
-                    f"🔄 <b>@{username}</b> already monitored — rechecking...",
+                    f"🔄 <a href=\"https://www.instagram.com/{username}/\">@{username}</a> already monitored — rechecking...",
                     parse_mode="HTML",
                 )
                 await self._do_check_and_reply(update, username)
@@ -788,7 +792,7 @@ class TelegramBot:
         self.db.get_or_create_account(username, added_by)
         status_msg = await update.message.reply_text(
             f"➕━━━━━━━━━━━━━━━━━━━➕\n\n"
-            f"🔍 <b>Adding @{username}</b>\n\n"
+            f"🔍 <b>Adding</b> <a href=\"https://www.instagram.com/{username}/\">@{username}</a>\n\n"
             f"    Checking status...\n\n"
             f"➕━━━━━━━━━━━━━━━━━━━➕",
             parse_mode="HTML",
@@ -814,7 +818,7 @@ class TelegramBot:
             if status == "ACTIVE":
                 if status_msg:
                     await status_msg.edit_text(
-                        f"{emoji} <b>@{username}</b> — {status}\n📸 Generating profile card...",
+                        f"{emoji} <a href=\"https://www.instagram.com/{username}/\">@{username}</a> — {status}\n📸 Generating profile card...",
                         parse_mode="HTML",
                     )
                 screenshot_data = await loop.run_in_executor(
@@ -876,7 +880,7 @@ class TelegramBot:
         lines = [
             divider,
             "",
-            f"{emoji} <b>@{username}</b>",
+            f"{emoji} <a href=\"https://www.instagram.com/{username}/\">@{username}</a>",
             f"    {status}",
         ]
 
@@ -913,7 +917,7 @@ class TelegramBot:
         existing_owner = self.db.get_account_added_by(username)
         if existing_owner and existing_owner != added_by and not is_admin:
             await update.message.reply_text(
-                f"🔒 <b>@{username}</b> is monitored by @{existing_owner}.\n"
+                f"🔒 <a href=\"https://www.instagram.com/{username}/\">@{username}</a> is monitored by <a href=\"https://www.instagram.com/{existing_owner}/\">@{existing_owner}</a>.\n"
                 f"Ask an admin to remove it.",
                 parse_mode="HTML",
             )
@@ -922,7 +926,7 @@ class TelegramBot:
         existing = self.db.get_account_status(username)
         if existing is None:
             await update.message.reply_text(
-                f"❌ <b>@{username}</b> is not being monitored.",
+                f"❌ <a href=\"https://www.instagram.com/{username}/\">@{username}</a> is not being monitored.",
                 parse_mode="HTML",
             )
             return
@@ -931,7 +935,7 @@ class TelegramBot:
         await update.message.reply_text(
             f"➖━━━━━━━━━━━━━━━━━━━➖\n\n"
             f"🗑 <b>Account Removed</b>\n\n"
-            f"    <b>@{username}</b> removed from monitoring\n\n"
+            f"    <a href=\"https://www.instagram.com/{username}/\">@{username}</a> removed from monitoring\n\n"
             f"➖━━━━━━━━━━━━━━━━━━━➖",
             parse_mode="HTML",
         )
@@ -950,7 +954,7 @@ class TelegramBot:
 
         username = context.args[0].lstrip("@")
         status_msg = await update.message.reply_text(
-            f"🔍 <b>Checking @{username}...</b>",
+            f"🔍 <b>Checking</b> <a href=\"https://www.instagram.com/{username}/\">@{username}</a>...",
             parse_mode="HTML",
         )
 
@@ -964,7 +968,7 @@ class TelegramBot:
             transition = "⚡ Yes" if result["transition"] else "— No"
 
             text = (
-                f"🔍 <b>@{username}</b>\n"
+                f"🔍 <a href=\"https://www.instagram.com/{username}/\">@{username}</a>\n"
                 "━━━━━━━━━━━━━━━━━━━\n\n"
                 f"{emoji} <b>{result['status']}</b>\n"
                 f"Previous: {result.get('old_status', 'N/A')}\n"
@@ -993,7 +997,7 @@ class TelegramBot:
 
         username = context.args[0].lstrip("@")
         status_msg = await update.message.reply_text(
-            f"🧪 <b>Testing @{username}...</b>",
+            f"🧪 <b>Testing</b> <a href=\"https://www.instagram.com/{username}/\">@{username}</a>...",
             parse_mode="HTML",
         )
 
@@ -1002,9 +1006,20 @@ class TelegramBot:
 
             import asyncio as _asyncio
             loop = _asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None, check_account, username, self.config
-            )
+
+            max_attempts = 3
+            result = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    result = await loop.run_in_executor(
+                        None, check_account, username, self.config
+                    )
+                    break
+                except Exception as e:
+                    if attempt < max_attempts:
+                        await _asyncio.sleep(3)
+                    else:
+                        raise
             status = result["classification"]
             emoji = STATUS_EMOJI.get(status, "⚪")
 
@@ -1013,7 +1028,7 @@ class TelegramBot:
             screenshot_error = None
             if status == "ACTIVE":
                 await status_msg.edit_text(
-                    f"🧪 <b>@{username}</b> — {status}\n📸 Generating profile card...",
+                    f"🧪 <a href=\"https://www.instagram.com/{username}/\">@{username}</a> — {status}\n📸 Generating profile card...",
                     parse_mode="HTML",
                 )
                 screenshot_data = await loop.run_in_executor(
@@ -1029,7 +1044,7 @@ class TelegramBot:
                 "",
                 f"🧪 <b>Test Result</b>",
                 "",
-                f"{emoji} <b>@{username}</b> — {status}",
+                f"{emoji} <a href=\"https://www.instagram.com/{username}/\">@{username}</a> — {status}",
                 f"🏎 {result.get('latency_ms', 0):.0f}ms · HTTP {result.get('status_code') or 'N/A'}",
             ]
 
@@ -1571,7 +1586,7 @@ class TelegramBot:
                 except Exception:
                     time_str = err["timestamp"][:16]
                 msg = (err.get("error_message") or "unknown")[:80]
-                lines.append(f"⚫ <b>@{err['username']}</b> — {time_str}")
+                lines.append(f"⚫ <a href=\"https://www.instagram.com/{err['username']}/\">@{err['username']}</a> — {time_str}")
                 lines.append(f"    <code>{msg}</code>")
                 lines.append("")
         else:
@@ -1640,7 +1655,7 @@ class TelegramBot:
                 except Exception:
                     time_str = r["created_at"][:16]
                 status_emoji = "🟡" if r["status"] == "pending" else "✅"
-                lines.append(f"{status_emoji} <b>#{r['id']}</b> — @{r['username']} — {time_str}")
+                lines.append(f"{status_emoji} <b>#{r['id']}</b> — <a href=\"https://www.instagram.com/{r['username']}/\">@{r['username']}</a> — {time_str}")
                 lines.append(f"    {r['message'][:100]}")
                 lines.append("")
         else:
