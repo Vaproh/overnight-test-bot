@@ -19,10 +19,11 @@ logger = logging.getLogger("ig_checker")
 app = FastAPI(title="Instagram Profile Checker")
 
 PROXY = {
-    "server": "gw.dataimpulse.com:823",
+    "server": "http://gw.dataimpulse.com:823",
     "username": "16a3e39e47a109ce0c47",
     "password": "c12373c2d7f5e5ff",
 }
+USE_PROXY = False  # DataImpulse proxy auth not supported by Playwright Chromium
 
 STEALTH_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', { get: () => false });
@@ -75,17 +76,28 @@ async def check_profile(username: str) -> dict:
     }
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            proxy=PROXY,
-            args=LAUNCH_ARGS,
-        )
+        launch_args = LAUNCH_ARGS[:]
+        launch_kwargs = {"headless": True, "args": launch_args}
+
+        if USE_PROXY and PROXY.get("server"):
+            launch_args.append(f"--proxy-server={PROXY['server']}")
+            launch_kwargs["args"] = launch_args
+
+        browser = await p.chromium.launch(**launch_kwargs)
         try:
+            proxy_settings = None
+            if USE_PROXY and PROXY.get("server"):
+                proxy_settings = {
+                    "server": PROXY["server"],
+                    "username": PROXY["username"],
+                    "password": PROXY["password"],
+                }
             context = await browser.new_context(
                 viewport=VIEWPORT,
                 user_agent=USER_AGENT,
                 locale="en-US",
                 timezone_id="America/New_York",
+                proxy=proxy_settings,
             )
             await context.add_init_script(STEALTH_SCRIPT)
 
@@ -103,10 +115,25 @@ async def check_profile(username: str) -> dict:
 
             try:
                 await page.evaluate("""
+                    // Dismiss signup overlay (X button)
                     const xbtn = document.querySelector('div[role="button"] svg[aria-label="Close"]');
                     if(xbtn) xbtn.closest('div[role="button"]').click();
                 """)
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(500)
+                try:
+                    cookie_btn = page.get_by_role("button", name="Allow all cookies")
+                    if await cookie_btn.is_visible(timeout=500):
+                        await cookie_btn.click(timeout=1000)
+                        await page.wait_for_timeout(500)
+                except Exception:
+                    pass
+                try:
+                    cookie_btn = page.get_by_role("button", name="Accept All")
+                    if await cookie_btn.is_visible(timeout=500):
+                        await cookie_btn.click(timeout=1000)
+                        await page.wait_for_timeout(500)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
