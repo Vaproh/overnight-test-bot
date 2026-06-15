@@ -1,4 +1,4 @@
-"""Local HTTP CONNECT proxy that adds Basic auth for upstream DataImpulse proxy.
+"""Local HTTP CONNECT proxy that adds Basic auth for upstream proxy.
 
 Chromium can't handle the upstream proxy's 407 response (missing Proxy-Authenticate header).
 This wrapper accepts unauthenticated connections from Chromium, then forwards to the
@@ -7,24 +7,50 @@ upstream proxy with Basic auth credentials injected.
 Usage:
     python3 proxy_wrapper.py
     
-Listens on localhost:8888, forwards to gw.dataimpulse.com:823
+Listens on localhost:8888, forwards to upstream proxy from config.yaml
 """
 
 import asyncio
 import base64
 import logging
+import os
 import signal
 import sys
+
+import yaml
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("proxy_wrapper")
 
-UPSTREAM_HOST = "gw.dataimpulse.com"
-UPSTREAM_PORT = 823
-UPSTREAM_USER = "16a3e39e47a109ce0c47"
-UPSTREAM_PASS = "c12373c2d7f5e5ff"
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 LOCAL_HOST = "127.0.0.1"
 LOCAL_PORT = 8888
+
+
+def _load_proxy_config() -> tuple:
+    """Load upstream proxy settings from config.yaml. Returns (host, port, user, pass)."""
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            data = yaml.safe_load(f) or {}
+        proxy = data.get("proxy", {})
+        if not proxy.get("enabled") or not proxy.get("server"):
+            logger.error("Proxy not enabled or no server configured in config.yaml")
+            sys.exit(1)
+
+        server = proxy["server"]
+        if ":" in server:
+            host, port = server.rsplit(":", 1)
+            port = int(port)
+        else:
+            host, port = server, 80
+
+        return host, port, proxy.get("username", ""), proxy.get("password", "")
+    except Exception as e:
+        logger.error(f"Failed to load proxy config: {e}")
+        sys.exit(1)
+
+
+UPSTREAM_HOST, UPSTREAM_PORT, UPSTREAM_USER, UPSTREAM_PASS = _load_proxy_config()
 
 AUTH_HEADER = "Proxy-Authorization: Basic " + base64.b64encode(
     f"{UPSTREAM_USER}:{UPSTREAM_PASS}".encode()

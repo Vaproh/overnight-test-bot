@@ -1,11 +1,13 @@
 """Instagram Profile Checker — visits profiles, reads page text, returns account state."""
 
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
+import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from playwright.async_api import async_playwright
@@ -18,10 +20,36 @@ logger = logging.getLogger("ig_checker")
 
 app = FastAPI(title="Instagram Profile Checker")
 
-PROXY = {
-    "server": "http://127.0.0.1:8888",
-}
-USE_PROXY = True  # Uses local proxy_wrapper.py which adds auth for upstream DataImpulse
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+
+
+def _load_proxy_config() -> dict:
+    """Load proxy settings from config.yaml."""
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            data = yaml.safe_load(f) or {}
+        proxy = data.get("proxy", {})
+        if proxy.get("enabled") and proxy.get("server"):
+            return {
+                "server": proxy["server"],
+                "username": proxy.get("username", ""),
+                "password": proxy.get("password", ""),
+            }
+    except Exception as e:
+        logger.warning(f"Failed to load proxy config: {e}")
+    return {}
+
+
+_PROXY_CFG = _load_proxy_config()
+
+if _PROXY_CFG.get("server"):
+    PROXY = {"server": "http://127.0.0.1:8888"}
+    USE_PROXY = True
+    logger.info(f"Proxy enabled: routing through local wrapper -> {_PROXY_CFG['server']}")
+else:
+    PROXY = {}
+    USE_PROXY = False
+    logger.info("Proxy disabled: connecting directly")
 
 STEALTH_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', { get: () => false });
