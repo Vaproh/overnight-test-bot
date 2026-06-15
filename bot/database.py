@@ -374,9 +374,6 @@ class Database:
     def get_notification_chat_ids_for_account(self, account_id: int) -> List[int]:
         cursor = self.conn.cursor()
 
-        cursor.execute("SELECT chat_id FROM admins WHERE chat_id IS NOT NULL")
-        admin_ids = {row["chat_id"] for row in cursor.fetchall()}
-
         cursor.execute("SELECT added_by FROM accounts WHERE id = ?", (account_id,))
         row = cursor.fetchone()
         added_by = row["added_by"] if row else None
@@ -394,7 +391,7 @@ class Database:
             )
             owner_ids.update(row["chat_id"] for row in cursor.fetchall() if row["chat_id"])
 
-        return list(admin_ids | owner_ids)
+        return list(owner_ids)
 
     def get_recent_events(self, limit: int = 10) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()

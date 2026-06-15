@@ -219,7 +219,8 @@ class Monitor:
 
                 chat_ids = self.db.get_notification_chat_ids_for_account(account_id)
                 if not chat_ids:
-                    chat_ids = self.db.get_admin_chat_ids()
+                    logger.warning(f"No chat_id for @{username}'s owner, skipping notification")
+                    return
 
                 if screenshot_path and self.notify_photo_to_chat_ids:
                     self.notify_photo_to_chat_ids(chat_ids, screenshot_path, caption)
