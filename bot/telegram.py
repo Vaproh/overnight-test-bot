@@ -148,27 +148,27 @@ class TelegramBot:
 
     async def post_init(self, application: Application):
         commands = [
-            BotCommand("start", "Start the bot"),
-            BotCommand("mainmenu", "Main menu"),
-            BotCommand("help", "Show available commands"),
-            BotCommand("status", "All monitored accounts"),
-            BotCommand("add", "Add account to monitor"),
-            BotCommand("remove", "Remove account"),
-            BotCommand("check", "Manual check an account"),
-            BotCommand("test", "Test account (no monitor)"),
-            BotCommand("proxy", "Proxy traffic stats"),
-            BotCommand("ping", "Check bot latency"),
-            BotCommand("health", "Bot health & uptime"),
-            BotCommand("screenshot", "Screenshot service status"),
-            BotCommand("setcookie", "Upload cookies (admin)"),
-            BotCommand("backup", "Backup data (admin)"),
-            BotCommand("adduser", "Allow user (admin)"),
-            BotCommand("removeuser", "Remove user (admin)"),
-            BotCommand("addadmin", "Add admin (admin)"),
-            BotCommand("removeadmin", "Remove admin (admin)"),
-            BotCommand("listusers", "List users (admin)"),
-            BotCommand("changelog", "View updates"),
-            BotCommand("logs", "View error logs (admin)"),
+            BotCommand("start", "🚀 Start the bot"),
+            BotCommand("mainmenu", "📋 Main menu"),
+            BotCommand("help", "❓ Show available commands"),
+            BotCommand("status", "📊 All monitored accounts"),
+            BotCommand("add", "➕ Add account to monitor"),
+            BotCommand("remove", "➖ Remove account"),
+            BotCommand("check", "🔍 Manual check an account"),
+            BotCommand("test", "🧪 Test account (no monitor)"),
+            BotCommand("proxy", "🌐 Proxy traffic stats"),
+            BotCommand("ping", "📡 Check bot latency"),
+            BotCommand("health", "💓 Bot health & uptime"),
+            BotCommand("screenshot", "📸 Profile card service status"),
+            BotCommand("setcookie", "🍪 Upload cookies (admin)"),
+            BotCommand("backup", "💾 Backup data (admin)"),
+            BotCommand("adduser", "👤 Allow user (admin)"),
+            BotCommand("removeuser", "🚫 Remove user (admin)"),
+            BotCommand("addadmin", "🔑 Add admin (admin)"),
+            BotCommand("removeadmin", "🗑️ Remove admin (admin)"),
+            BotCommand("listusers", "👥 List users (admin)"),
+            BotCommand("changelog", "📝 View updates"),
+            BotCommand("logs", "📄 View error logs (admin)"),
         ]
         await application.bot.set_my_commands(commands)
 
@@ -743,7 +743,10 @@ class TelegramBot:
 
         self.db.get_or_create_account(username, added_by)
         status_msg = await update.message.reply_text(
-            f"✅ <b>@{username}</b> added to your monitor\n🔍 Checking status...",
+            f"➕━━━━━━━━━━━━━━━━━━━➕\n\n"
+            f"🔍 <b>Adding @{username}</b>\n\n"
+            f"    Checking status...\n\n"
+            f"➕━━━━━━━━━━━━━━━━━━━➕",
             parse_mode="HTML",
         )
 
@@ -882,7 +885,10 @@ class TelegramBot:
 
         self.db.remove_account(username)
         await update.message.reply_text(
-            f"🗑 <b>@{username}</b> removed from monitoring.",
+            f"➖━━━━━━━━━━━━━━━━━━━➖\n\n"
+            f"🗑 <b>Account Removed</b>\n\n"
+            f"    <b>@{username}</b> removed from monitoring\n\n"
+            f"➖━━━━━━━━━━━━━━━━━━━➖",
             parse_mode="HTML",
         )
 
@@ -1189,10 +1195,20 @@ class TelegramBot:
             return
 
         username = context.args[0].lstrip("@")
-        if self.db.add_admin(username):
-            await update.message.reply_text(f"✅ <b>@{username}</b> is now an admin.", parse_mode="HTML")
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        if self.db.add_admin(username, chat_id):
+            await update.message.reply_text(
+                f"🔑━━━━━━━━━━━━━━━━━━━🔑\n\n"
+                f"👑 <b>New Admin Added</b>\n\n"
+                f"    <b>@{username}</b>\n\n"
+                f"🔑━━━━━━━━━━━━━━━━━━━🔑",
+                parse_mode="HTML",
+            )
         else:
-            await update.message.reply_text(f"⚠️ @{username} is already an admin.", parse_mode="HTML")
+            await update.message.reply_text(
+                f"⚠️ <b>@{username}</b> is already an admin.",
+                parse_mode="HTML",
+            )
 
     async def cmd_removeadmin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_admin(update):
@@ -1213,9 +1229,18 @@ class TelegramBot:
             return
 
         if self.db.remove_admin(username):
-            await update.message.reply_text(f"🗑 <b>@{username}</b> removed from admins.", parse_mode="HTML")
+            await update.message.reply_text(
+                f"🔑━━━━━━━━━━━━━━━━━━━🔑\n\n"
+                f"🚫 <b>Admin Removed</b>\n\n"
+                f"    <b>@{username}</b>\n\n"
+                f"🔑━━━━━━━━━━━━━━━━━━━🔑",
+                parse_mode="HTML",
+            )
         else:
-            await update.message.reply_text("❌ Must have at least one admin.", parse_mode="HTML")
+            await update.message.reply_text(
+                "❌ Must have at least one admin.",
+                parse_mode="HTML",
+            )
 
     async def cmd_adduser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_admin(update):
@@ -1230,10 +1255,20 @@ class TelegramBot:
             return
 
         username = context.args[0].lstrip("@")
-        if self.db.add_allowed_user(username):
-            await update.message.reply_text(f"✅ <b>@{username}</b> can now use the bot.", parse_mode="HTML")
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        if self.db.add_allowed_user(username, chat_id):
+            await update.message.reply_text(
+                f"👤━━━━━━━━━━━━━━━━━━━👤\n\n"
+                f"✅ <b>User Added</b>\n\n"
+                f"    <b>@{username}</b> can now use the bot\n\n"
+                f"👤━━━━━━━━━━━━━━━━━━━👤",
+                parse_mode="HTML",
+            )
         else:
-            await update.message.reply_text(f"⚠️ @{username} already has access.", parse_mode="HTML")
+            await update.message.reply_text(
+                f"⚠️ <b>@{username}</b> already has access.",
+                parse_mode="HTML",
+            )
 
     async def cmd_removeuser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_admin(update):
@@ -1249,9 +1284,18 @@ class TelegramBot:
 
         username = context.args[0].lstrip("@")
         if self.db.remove_allowed_user(username):
-            await update.message.reply_text(f"🗑 <b>@{username}</b> removed from allowed users.", parse_mode="HTML")
+            await update.message.reply_text(
+                f"👤━━━━━━━━━━━━━━━━━━━👤\n\n"
+                f"🚫 <b>User Removed</b>\n\n"
+                f"    <b>@{username}</b> can no longer use the bot\n\n"
+                f"👤━━━━━━━━━━━━━━━━━━━👤",
+                parse_mode="HTML",
+            )
         else:
-            await update.message.reply_text(f"❌ @{username} wasn't in allowed users.", parse_mode="HTML")
+            await update.message.reply_text(
+                f"❌ <b>@{username}</b> wasn't in allowed users.",
+                parse_mode="HTML",
+            )
 
     async def cmd_listusers(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_admin(update):
@@ -1697,4 +1741,9 @@ class TelegramBot:
         if self._startup_notified:
             return
         self._startup_notified = True
-        self.shutdown_notify("🟢 <b>Bot started</b>")
+        self.shutdown_notify(
+            "🟢━━━━━━━━━━━━━━━━━━━━🟢\n\n"
+            "🟢 <b>Bot Started</b>\n\n"
+            "    Instagram Monitor is now online\n\n"
+            "🟢━━━━━━━━━━━━━━━━━━━━🟢"
+        )

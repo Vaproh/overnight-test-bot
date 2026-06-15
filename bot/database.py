@@ -123,6 +123,16 @@ class Database:
         cur.execute("SELECT chat_id FROM admins WHERE chat_id IS NOT NULL")
         return [row["chat_id"] for row in cur.fetchall()]
 
+    def get_admins_without_chat_id(self) -> List[str]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT username FROM admins WHERE chat_id IS NULL")
+        return [row["username"] for row in cur.fetchall()]
+
+    def get_users_without_chat_id(self) -> List[str]:
+        cur = self.conn.cursor()
+        cur.execute("SELECT username FROM allowed_users WHERE chat_id IS NULL")
+        return [row["username"] for row in cur.fetchall()]
+
     def seed_admins(self, usernames: List[str]):
         for u in usernames:
             self.conn.execute(
@@ -140,9 +150,12 @@ class Database:
         cur.execute("SELECT 1 FROM allowed_users WHERE username = ?", (username,))
         return cur.fetchone() is not None
 
-    def add_admin(self, username: str) -> bool:
+    def add_admin(self, username: str, chat_id: int = None) -> bool:
         try:
-            self.conn.execute("INSERT INTO admins (username) VALUES (?)", (username,))
+            self.conn.execute(
+                "INSERT INTO admins (username, chat_id) VALUES (?, ?)",
+                (username, chat_id),
+            )
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -163,9 +176,12 @@ class Database:
         cur.execute("SELECT username FROM admins ORDER BY id")
         return [row["username"] for row in cur.fetchall()]
 
-    def add_allowed_user(self, username: str) -> bool:
+    def add_allowed_user(self, username: str, chat_id: int = None) -> bool:
         try:
-            self.conn.execute("INSERT INTO allowed_users (username) VALUES (?)", (username,))
+            self.conn.execute(
+                "INSERT INTO allowed_users (username, chat_id) VALUES (?, ?)",
+                (username, chat_id),
+            )
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:

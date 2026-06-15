@@ -26,6 +26,13 @@ def main():
     db = Database(config.database_path)
     db.seed_admins(config.admins)
 
+    missing_admins = db.get_admins_without_chat_id()
+    if missing_admins:
+        logger.warning(f"Admins without chat_id (interact with bot to register): {', '.join('@' + a for a in missing_admins)}")
+    missing_users = db.get_users_without_chat_id()
+    if missing_users:
+        logger.warning(f"Users without chat_id (interact with bot to register): {', '.join('@' + u for u in missing_users)}")
+
     db.cleanup_old_data(
         days=7,
         raw_dir=config.raw_responses_dir,
@@ -47,7 +54,12 @@ def main():
         logger.info(f"Received signal {signum}, shutting down...")
         monitor.stop()
         if telegram_bot:
-            telegram_bot.shutdown_notify("🔴 <b>Bot stopped</b>")
+            telegram_bot.shutdown_notify(
+                "🔴━━━━━━━━━━━━━━━━━━━━🔴\n\n"
+                "🔴 <b>Bot Stopped</b>\n\n"
+                "    Instagram Monitor is now offline\n\n"
+                "🔴━━━━━━━━━━━━━━━━━━━━🔴"
+            )
         if telegram_bot and telegram_bot.app:
             telegram_bot.app.stop_running()
 
