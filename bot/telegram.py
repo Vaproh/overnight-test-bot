@@ -1691,3 +1691,10 @@ class TelegramBot:
                 )
             except Exception:
                 pass
+
+    def send_startup_notification(self):
+        """Send 'Bot started' to all admins with known chat_ids."""
+        if self._startup_notified:
+            return
+        self._startup_notified = True
+        self.shutdown_notify("🟢 <b>Bot started</b>")

@@ -59,6 +59,7 @@ def main():
         if telegram_bot and telegram_bot.app:
             async def on_post_init(application):
                 await telegram_bot.post_init(application)
+                telegram_bot.send_startup_notification()
 
             telegram_bot.app.post_init = on_post_init
             monitor_thread = threading.Thread(target=monitor.start, daemon=True)
