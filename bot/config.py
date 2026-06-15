@@ -55,6 +55,7 @@ class Config:
     playwright: PlaywrightConfig = field(default_factory=PlaywrightConfig)
     instagram_auth: InstagramAuth = field(default_factory=InstagramAuth)
     screenshot_service_url: str = ""
+    checker_service_url: str = "http://127.0.0.1:8081"
     database_path: str = "./data/monitor.db"
     raw_responses_dir: str = "./data/raw_responses"
     logs_dir: str = "./data/logs"
@@ -106,6 +107,7 @@ class Config:
                 cookies_path=ig_data.get("cookies_path", "./data/cookies.json"),
             ),
             screenshot_service_url=data.get("screenshot_service_url", ""),
+            checker_service_url=data.get("checker_service_url", "http://127.0.0.1:8081"),
             database_path=data.get("database_path", "./data/monitor.db"),
             raw_responses_dir=data.get("raw_responses_dir", "./data/raw_responses"),
             logs_dir=data.get("logs_dir", "./data/logs"),

@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from .checker import check_account, verify_with_playwright, capture_profile_screenshot
+from .checker import check_account, verify_with_service, capture_profile_screenshot
 from .config import Config
 from .database import Database
 
@@ -125,7 +125,7 @@ class Monitor:
         result = check_account(username, self.config)
 
         if result["classification"] == "MISSING":
-            result = verify_with_playwright(username, result, self.config)
+            result = verify_with_service(username, result, self.config)
 
         account_id = self.db.get_or_create_account(username)
         old_status = self.db.get_account_status(username)

@@ -1,4 +1,4 @@
-"""Checker layer: curl_cffi primary, Playwright verification, screenshot service."""
+"""Checker layer: curl_cffi primary, checker service verification, screenshot service."""
 
 import hashlib
 import json
@@ -8,6 +8,8 @@ import random
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+import requests as _requests
 
 from .config import Config
 
@@ -81,83 +83,6 @@ def classify_response(data: Dict[str, Any], status_code: Optional[int]) -> str:
     return "MISSING"
 
 
-def is_profile_unavailable_snapshot(snapshot: str) -> bool:
-    """Check if accessibility snapshot indicates a missing/banned/deactivated profile."""
-    unavailable_phrases = [
-        "Sorry, this page isn't available",
-        "This page isn't available",
-        "The link you followed may be broken",
-        "Page Not Found",
-        "The page you were looking for doesn't exist",
-        "Profile isn't available",
-        "no longer with us",
-    ]
-    return any(phrase in snapshot for phrase in unavailable_phrases)
-
-
-def is_page_loaded_snapshot(snapshot: str) -> bool:
-    """Check if accessibility snapshot shows profile data (posts, followers, following)."""
-    indicators = ["posts", "followers", "following"]
-    snapshot_lower = snapshot.lower()
-    count = sum(1 for ind in indicators if ind in snapshot_lower)
-    return count >= 2
-
-
-OVERLAY_BUTTONS = [
-    "Accept All",
-    "Accept all",
-    "Accept cookies",
-    "Accept",
-    "Allow all cookies",
-    "Allow All Cookies",
-    "Close",
-    "Decline optional cookies",
-    "Deny all",
-    "Not now",
-    "Reject all",
-    "Rejeter tout",
-    "Cancel",
-    "Log in later",
-]
-
-
-def _find_buttons_in_snapshot(snapshot) -> List[str]:
-    """Recursively find all button accessible names in an accessibility snapshot tree."""
-    buttons = []
-    if isinstance(snapshot, dict):
-        if snapshot.get("role") == "button" and snapshot.get("name"):
-            buttons.append(snapshot["name"])
-        for child in snapshot.get("children", []):
-            buttons.extend(_find_buttons_in_snapshot(child))
-    elif isinstance(snapshot, list):
-        for item in snapshot:
-            buttons.extend(_find_buttons_in_snapshot(item))
-    return buttons
-
-
-def detect_overlay_snapshot(snapshot) -> Optional[str]:
-    """Detect overlay buttons from Playwright accessibility snapshot.
-    Accepts either a dict (from page.accessibility.snapshot()) or a JSON string.
-    Returns button accessible name if found, None otherwise.
-    """
-    if isinstance(snapshot, str):
-        try:
-            snapshot = json.loads(snapshot)
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-    if not isinstance(snapshot, dict):
-        return None
-
-    found_buttons = _find_buttons_in_snapshot(snapshot)
-
-    for button_name in OVERLAY_BUTTONS:
-        if button_name in found_buttons:
-            return button_name
-
-    return None
-
-
 def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
     from curl_cffi import requests as cffi_requests
 
@@ -228,8 +153,6 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
 
 
 def capture_profile_screenshot(username: str, config: Config, status: str = "unknown") -> dict:
-    import requests as _requests
-
     result = {
         "screenshot_path": None,
         "profile_data": {},
@@ -297,13 +220,11 @@ def capture_profile_screenshot(username: str, config: Config, status: str = "unk
     return result
 
 
-def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
-    import asyncio
-    from playwright.async_api import async_playwright
-
+def check_with_service(username: str, config: Config) -> Dict[str, Any]:
+    """Verify account status via the standalone checker service (Playwright-based)."""
     result = {
         "username": username,
-        "transport": "playwright",
+        "transport": "checker_service",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "status_code": None,
         "latency_ms": 0,
@@ -316,102 +237,75 @@ def check_with_playwright(username: str, config: Config) -> Dict[str, Any]:
         "retry_count": 0,
     }
 
-    url = f"https://www.instagram.com/{username}/"
+    service_url = config.checker_service_url
+    if not service_url:
+        result["error_message"] = "no_checker_service_url"
+        logger.warning("No checker_service_url configured, skipping verification")
+        return result
+
+    url = f"{service_url.rstrip('/')}/check/{username}"
     start = time.time()
 
-    async def _check():
-        async with async_playwright() as p:
-            proxy_url = config.proxy.get_url()
-            launch_args = {"headless": config.playwright.headless}
-            if proxy_url:
-                launch_args["proxy"] = {"server": proxy_url}
-            browser = await p.chromium.launch(**launch_args)
-            logger.info(f"Playwright launched for {username} (proxy={'yes' if proxy_url else 'no'})")
-            try:
-                user_agent = random.choice(config.user_agents)
-                context = await browser.new_context(
-                    user_agent=user_agent,
-                    viewport={"width": 1920, "height": 1080},
-                    color_scheme="dark",
-                )
-                page = await context.new_page()
-
-                await page.emulate_media(color_scheme="dark")
-
-                if config.instagram_auth.enabled:
-                    cookies = load_cookies(config.instagram_auth.cookies_path)
-                    if cookies:
-                        await page.context.add_cookies(cookies)
-
-                goto_timeout = min(config.playwright.timeout, 15000)
-                response = await page.goto(url, wait_until="domcontentloaded", timeout=goto_timeout)
-                await page.wait_for_timeout(1500)
-
-                if response:
-                    result["status_code"] = response.status
-
-                for _ in range(5):
-                    snapshot = await page.accessibility.snapshot()
-                    if not snapshot:
-                        break
-
-                    snapshot_str = json.dumps(snapshot)
-
-                    if is_profile_unavailable_snapshot(snapshot_str):
-                        result["classification"] = "MISSING"
-                        result["raw_response"] = {"url": url, "snapshot": snapshot_str[:2000]}
-                        break
-
-                    overlay_name = detect_overlay_snapshot(snapshot)
-                    if overlay_name:
-                        logger.debug(f"Dismissing '{overlay_name}' overlay for {username}")
-                        try:
-                            btn = page.get_by_role("button", name=overlay_name)
-                            if await btn.is_visible(timeout=500):
-                                await btn.click(timeout=1000)
-                                await page.wait_for_timeout(800)
-                                continue
-                        except Exception:
-                            await page.wait_for_timeout(800)
-                            continue
-
-                    if is_page_loaded_snapshot(snapshot_str):
-                        result["classification"] = "ACTIVE"
-                        result["raw_response"] = {"url": url, "snapshot": snapshot_str[:2000]}
-                        break
-
-                    break
-
-                if result["classification"] == "ERROR":
-                    snapshot = await page.accessibility.snapshot()
-                    snapshot_str = json.dumps(snapshot) if snapshot else ""
-                    result["response_size"] = len(snapshot_str)
-                    result["raw_response"] = {"url": url, "snapshot": snapshot_str[:2000]}
-                    logger.warning(f"No snapshot match for {username}, snapshot preview: {snapshot_str[:500]}")
-
-                latency_ms = (time.time() - start) * 1000
-                result["latency_ms"] = latency_ms
-                result["response_size"] = len(json.dumps(result.get("raw_response", {})))
-            except asyncio.CancelledError:
-                logger.debug(f"Playwright check cancelled for {username}")
-            finally:
-                try:
-                    await browser.close()
-                except Exception:
-                    pass
-
     try:
-        pw_timeout = max(config.playwright.timeout / 1000, 20)
-        asyncio.run(asyncio.wait_for(_check(), timeout=pw_timeout))
-    except asyncio.TimeoutError:
-        logger.warning(f"Playwright check timed out for {username}")
-    except asyncio.CancelledError:
-        logger.warning(f"Playwright check cancelled for {username}")
+        resp = _requests.get(url, timeout=30)
+        latency_ms = (time.time() - start) * 1000
+
+        if resp.status_code == 200:
+            data = resp.json()
+            state = data.get("state", "error")
+
+            state_map = {
+                "unavailable": "MISSING",
+                "active": "ACTIVE",
+                "private": "ACTIVE",
+                "error": "ERROR",
+            }
+            classification = state_map.get(state, "ERROR")
+
+            result.update({
+                "status_code": 200,
+                "latency_ms": latency_ms,
+                "response_size": len(resp.content),
+                "response_hash": get_response_hash(data),
+                "raw_response": data,
+                "classification": classification,
+            })
+
+            if config.raw_responses_dir:
+                result["raw_response_path"] = _save_raw_response(
+                    config.raw_responses_dir, username, data, "checker_service"
+                )
+
+            logger.info(f"Checker service: {username} -> state={state}, classification={classification}")
+        else:
+            result.update({
+                "status_code": resp.status_code,
+                "latency_ms": latency_ms,
+                "error_message": f"HTTP {resp.status_code}: {resp.text[:500]}",
+            })
+            logger.warning(f"Checker service returned {resp.status_code} for {username}")
+
+    except _requests.exceptions.ConnectionError:
+        latency_ms = (time.time() - start) * 1000
+        result.update({
+            "latency_ms": latency_ms,
+            "error_message": "connection_refused",
+        })
+        logger.error(f"Checker service unreachable at {service_url}")
+    except _requests.exceptions.Timeout:
+        latency_ms = (time.time() - start) * 1000
+        result.update({
+            "latency_ms": latency_ms,
+            "error_message": "timeout",
+        })
+        logger.error(f"Checker service timed out for {username}")
     except Exception as e:
         latency_ms = (time.time() - start) * 1000
-        result["latency_ms"] = latency_ms
-        result["error_message"] = str(e)[:500]
-        logger.error(f"Playwright error for {username}: {e}")
+        result.update({
+            "latency_ms": latency_ms,
+            "error_message": str(e)[:500],
+        })
+        logger.error(f"Checker service error for {username}: {e}")
 
     return result
 
@@ -452,7 +346,8 @@ def check_account(username: str, config: Config) -> Dict[str, Any]:
     }
 
 
-def verify_with_playwright(username: str, curl_result: Dict[str, Any], config: Config) -> Dict[str, Any]:
+def verify_with_service(username: str, curl_result: Dict[str, Any], config: Config) -> Dict[str, Any]:
+    """Verify MISSING result via the checker service. Maps service states to monitor states."""
     if not config.playwright.enabled:
         return curl_result
 
@@ -460,24 +355,24 @@ def verify_with_playwright(username: str, curl_result: Dict[str, Any], config: C
     if curl_class != "MISSING":
         return curl_result
 
-    logger.info(f"Verifying {username} with Playwright (curl said MISSING)")
-    pw_result = check_with_playwright(username, config)
-    pw_class = pw_result.get("classification")
+    logger.info(f"Verifying {username} with checker service (curl said MISSING)")
+    svc_result = check_with_service(username, config)
+    svc_class = svc_result.get("classification")
 
-    curl_result["verification_status"] = pw_class
+    curl_result["verification_status"] = svc_class
 
-    if pw_class == "MISSING":
+    if svc_class == "MISSING":
         curl_result["classification"] = "MISSING"
-        logger.info(f"Playwright confirms {username} is MISSING")
-    elif pw_class == "ACTIVE":
+        logger.info(f"Checker service confirms {username} is MISSING")
+    elif svc_class == "ACTIVE":
         curl_result["classification"] = "SUSPECT"
-        logger.warning(f"Disagreement: curl=MISSING, playwright=ACTIVE for {username} -> SUSPECT")
+        logger.warning(f"Disagreement: curl=MISSING, service=ACTIVE for {username} -> SUSPECT")
     else:
-        logger.warning(f"Playwright returned {pw_class} for {username}, keeping curl result")
-        raw = pw_result.get("raw_response", {})
+        logger.warning(f"Checker service returned {svc_class} for {username}, keeping curl result")
+        raw = svc_result.get("raw_response", {})
         if isinstance(raw, dict):
-            preview = raw.get("snapshot", "")[:500]
-            logger.debug(f"Page snapshot for {username}: {preview}")
+            preview = raw.get("page_text", "")[:500]
+            logger.debug(f"Page text for {username}: {preview}")
 
     return curl_result
 
