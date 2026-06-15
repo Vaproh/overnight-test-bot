@@ -1744,39 +1744,25 @@ class TelegramBot:
         if not self.app or not self.app.bot:
             return
 
-        try:
-            import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
+        import requests as _requests
+        token = self.config.telegram_token
 
-            coro = self._send_photo_to_chat_ids(chat_ids, photo_path, caption)
-            if loop and loop.is_running():
-                asyncio.ensure_future(coro)
-            elif loop:
-                loop.run_until_complete(coro)
-            else:
-                asyncio.run(coro)
-        except Exception as e:
-            logger.error(f"Failed to queue photo: {e}")
-
-    async def _send_photo_to_chat_ids(self, chat_ids: list, photo_path: str, caption: str):
         for chat_id in chat_ids:
             try:
                 if not os.path.exists(photo_path):
-                    await self.app.bot.send_message(
-                        chat_id=chat_id,
-                        text=caption,
-                        parse_mode="HTML",
+                    _requests.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={"chat_id": chat_id, "text": caption, "parse_mode": "HTML"},
+                        timeout=10,
                     )
                     continue
+
                 with open(photo_path, "rb") as photo:
-                    await self.app.bot.send_photo(
-                        chat_id=chat_id,
-                        photo=photo,
-                        caption=caption,
-                        parse_mode="HTML",
+                    _requests.post(
+                        f"https://api.telegram.org/bot{token}/sendPhoto",
+                        data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+                        files={"photo": photo},
+                        timeout=30,
                     )
             except Exception as e:
                 logger.error(f"Failed to send photo to {chat_id}: {e}")

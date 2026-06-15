@@ -316,6 +316,9 @@ class Database:
             down_since = None
             if old_status in VISIBLE and new_status in INVISIBLE:
                 down_since = now
+            elif old_status is None or old_status == "UNKNOWN":
+                if new_status in INVISIBLE:
+                    down_since = now
             elif old_status in INVISIBLE and new_status in VISIBLE:
                 down_since = None
             elif old_status in INVISIBLE and new_status in INVISIBLE:
