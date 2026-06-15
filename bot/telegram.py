@@ -36,6 +36,7 @@ class TelegramBot:
         self.app: Optional[Application] = None
         self._admin_notified_cookies = False
         self._pending_changelog: dict = {}
+        self._startup_notified = False
 
     def _get_username(self, update: Update) -> str:
         user = update.effective_user
@@ -51,6 +52,14 @@ class TelegramBot:
         if is_authorized and update.effective_chat:
             if self.db.is_admin(username):
                 self.db.update_admin_chat_id(username, update.effective_chat.id)
+                if not self._startup_notified:
+                    self._startup_notified = True
+                    try:
+                        import asyncio
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self._send_notification("🟢 <b>Bot started</b>"))
+                    except Exception:
+                        pass
             else:
                 self.db.update_allowed_user_chat_id(username, update.effective_chat.id)
         return is_authorized
