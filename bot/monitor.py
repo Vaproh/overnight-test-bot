@@ -304,7 +304,7 @@ class Monitor:
                 lines.append(f"    {' · '.join(stats)}")
 
         if duration and duration != "unknown":
-            lines.extend(["", f"⏱ Monitored for {duration}"])
+            lines.extend(["", f"⏱ Banned for {duration}"])
 
         if desc:
             lines.extend(["", desc])
