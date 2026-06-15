@@ -23,7 +23,7 @@ PROXY = {
     "username": "16a3e39e47a109ce0c47",
     "password": "c12373c2d7f5e5ff",
 }
-USE_PROXY = False  # DataImpulse proxy auth not supported by Playwright Chromium
+USE_PROXY = False  # Proxy returns 407 without Proxy-Authenticate header — Chromium can't handle it. Works without proxy from this server.
 
 STEALTH_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', { get: () => false });
@@ -76,14 +76,10 @@ async def check_profile(username: str) -> dict:
     }
 
     async with async_playwright() as p:
-        launch_args = LAUNCH_ARGS[:]
-        launch_kwargs = {"headless": True, "args": launch_args}
-
-        if USE_PROXY and PROXY.get("server"):
-            launch_args.append(f"--proxy-server={PROXY['server']}")
-            launch_kwargs["args"] = launch_args
-
-        browser = await p.chromium.launch(**launch_kwargs)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=LAUNCH_ARGS,
+        )
         try:
             proxy_settings = None
             if USE_PROXY and PROXY.get("server"):
