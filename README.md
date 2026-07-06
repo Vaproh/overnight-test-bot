@@ -1,32 +1,32 @@
-# Instagram Ban Account Monitor
+# 📸 IG Pulse
 
 A Telegram bot that monitors Instagram accounts for visibility changes (ACTIVE/MISSING) with profile card evidence, per-user monitoring, and real-time notifications.
 
-## Features
+## ✨ Features
 
-- **Per-user monitoring** — each user sees only their own added accounts; admins see everything
-- **Dual-layer checking** — curl_cffi API check + Playwright browser verification for MISSING accounts
-- **Profile cards** — generates aesthetic profile cards via external service
-- **Transition alerts** — notifies on ACTIVE→MISSING (ban) and MISSING→ACTIVE (restoration)
-- **Multi-user access** — admin + allowed user roles stored in SQLite
-- **Inline menu** — Telegram keyboard buttons for quick access
-- **Auto-restart** — survives crashes via tmux shell loop
-- **Changelog system** — admins can broadcast updates to all users
-- **Report system** — users can report issues to admins
+- 👤 **Per-user monitoring** — each user sees only their own added accounts; admins see everything
+- 🔍 **Dual-layer checking** — curl_cffi API check + Playwright browser verification for MISSING accounts
+- 🖼️ **Profile cards** — generates aesthetic profile cards via external service
+- 🚨 **Transition alerts** — notifies on ACTIVE→MISSING (ban) and MISSING→ACTIVE (restoration)
+- 🔐 **Multi-user access** — admin + allowed user roles stored in SQLite
+- 🎛️ **Inline menu** — Telegram keyboard buttons for quick access
+- 🔄 **Auto-restart** — survives crashes via tmux shell loop
+- 📋 **Changelog system** — admins can broadcast updates to all users
+- 🐛 **Report system** — users can report issues to admins
 
-## Requirements
+## 📋 Requirements
 
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- tmux
-- Telegram bot token (from @BotFather)
-- Proxy (recommended to avoid IP bans)
+- 🐍 Python 3.10+
+- ⚡ [uv](https://docs.astral.sh/uv/) (Python package manager)
+- 🖥️ tmux
+- 🤖 Telegram bot token (from @BotFather)
+- 🌐 Proxy (recommended to avoid IP bans)
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # 1. Clone and setup
-git clone <repo-url> && cd instagram-ban-account
+git clone <repo-url> && cd ig-pulse
 cp config.example.yaml config.yaml  # edit with your tokens
 just setup
 
@@ -40,21 +40,22 @@ just logs
 just stop
 ```
 
-## Commands
+## 🛠️ Commands
 
 | Command | Description |
 |---------|-------------|
-| `just setup` | One-time setup: uv venv, deps, Playwright, data dirs |
-| `just start` | Start all services in tmux session `ig-monitor` |
-| `just stop` | Stop all services |
-| `just logs` | Attach to tmux session |
-| `just logtail` | Tail the bot log file |
-| `just check <username>` | One-time check on an account |
-| `just lint` | Syntax check all Python files |
-| `just clean` | Remove data directory contents |
-| `just reinstall` | Remove venv and reinstall |
+| `just setup` | ⚙️ One-time setup: uv venv, deps, Playwright, data dirs |
+| `just start` | ▶️ Start all services in tmux session `ig-monitor` |
+| `just stop` | ⏹️ Stop all services |
+| `just logs` | 📺 Attach to tmux session |
+| `just logtail` | 📜 Tail the bot log file |
+| `just check <username>` | 🔎 One-time check on an account |
+| `just lint` | 🔍 Lint with ruff |
+| `just fmt` | ✨ Format with ruff |
+| `just clean` | 🧹 Remove data, caches, and build artifacts |
+| `just reinstall` | 🔄 Remove venv and reinstall |
 
-## Configuration
+## ⚙️ Configuration
 
 Edit `config.yaml`:
 
@@ -90,41 +91,41 @@ admins:
 
 See `config.example.yaml` for all available options.
 
-## Project Structure
+## 📁 Project Structure
 
 ```
-├── bot/
+├── 📂 bot/
 │   ├── __init__.py
-│   ├── __main__.py       # Entry point for `python -m bot`
-│   ├── main.py           # Wires config, db, monitor, telegram together
-│   ├── config.py         # YAML config loader → Config dataclass
-│   ├── database.py       # SQLite: accounts, checks, events, admins, reports
-│   ├── checker.py        # curl_cffi checks + HTTP calls to checker service
-│   ├── monitor.py        # Check loop, state tracking, transition notifications
-│   ├── telegram.py       # Bot commands, access control, inline menu, notifications
-│   └── logger.py         # Logging setup
-├── checker.py            # Standalone FastAPI profile checker service
-├── proxy_wrapper.py      # Local HTTP proxy wrapper for DataImpulse auth
-├── config.example.yaml   # Example config (copy to config.yaml)
-├── pyproject.toml        # UV/Python project config
-├── justfile              # Task runner commands
-├── start.sh              # Start services in tmux
-├── stop.sh               # Stop services
-├── bot.md                # Bot command reference
-├── LICENSE               # MIT License
-└── README.md             # This file
+│   ├── __main__.py       # 🚀 Entry point for `python -m bot`
+│   ├── main.py           # 🔗 Wires config, db, monitor, telegram together
+│   ├── config.py         # ⚙️ YAML config loader → Config dataclass
+│   ├── database.py       # 🗄️ SQLite: accounts, checks, events, admins, reports
+│   ├── checker.py        # 🔍 curl_cffi checks + HTTP calls to checker service
+│   ├── monitor.py        # 📊 Check loop, state tracking, transition notifications
+│   ├── telegram.py       # 🤖 Bot commands, access control, inline menu, notifications
+│   └── logger.py         # 📝 Logging setup
+├── 🖼️ checker.py            # Standalone FastAPI profile checker service
+├── 🌐 proxy_wrapper.py      # Local HTTP proxy wrapper for DataImpulse auth
+├── 📄 config.example.yaml   # Example config (copy to config.yaml)
+├── 📦 pyproject.toml        # UV/Python project config
+├── ⚡ justfile              # Task runner commands
+├── ▶️ start.sh              # Start services in tmux
+├── ⏹️ stop.sh               # Stop services
+├── 📖 bot.md                # Bot command reference
+├── 📜 LICENSE               # MIT License
+└── 📝 README.md             # This file
 ```
 
-## Architecture
+## 🏗️ Architecture
 
 ```
                     ┌─────────────┐
-                    │  Telegram   │
+                    │  📱 Telegram│
                     │   Bot API   │
                     └──────┬──────┘
                            │
                     ┌──────▼──────┐
-                    │  Bot Core   │
+                    │  🧠 Bot Core│
                     │ (telegram.py│
                     │  monitor.py)│
                     └──────┬──────┘
@@ -132,37 +133,37 @@ See `config.example.yaml` for all available options.
               ┌────────────┼────────────┐
               │            │            │
        ┌──────▼──────┐    │    ┌──────▼──────┐
-       │  curl_cffi  │    │    │  Checker    │
+       │  🔗 curl_cffi│    │    │  🖼️ Checker │
        │  (primary)  │    │    │  Service    │
        └─────────────┘    │    │  (:8081)    │
                           │    └──────┬──────┘
                    ┌──────▼──────┐    │
-                   │   Proxy     │    │
+                   │  🌐 Proxy   │    │
                    │  Wrapper    │    │
                    │   (:8888)   │    │
                    └─────────────┘    │
                                       │
                                ┌──────▼──────┐
-                               │  Playwright  │
+                               │  🎭 Playwright│
                                │  (verify)    │
                                └─────────────┘
 ```
 
-## Data Directory (gitignored)
+## 📂 Data Directory (gitignored)
 
 ```
 data/
-├── monitor.db            # SQLite database
-├── screenshots/          # Profile screenshots by date
-├── raw_responses/        # API response logs
-└── logs/
-    └── bot.log           # Bot logs
+├── 🗄️ monitor.db            # SQLite database
+├── 📸 screenshots/          # Profile screenshots by date
+├── 📋 raw_responses/        # API response logs
+└── 📝 logs/
+    └── bot.log              # Bot logs
 ```
 
-## Bot Commands
+## 📖 Bot Commands
 
 See `bot.md` for the full command reference with examples and behavior details.
 
-## License
+## 📜 License
 
 [MIT](LICENSE)
