@@ -6,4 +6,5 @@ data/
 __pycache__/
 .venv/
 *.pyc
-uv.lock
+.ruff_cache/
+.pytest_cache/

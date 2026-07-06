@@ -42,18 +42,24 @@ status:
 check username:
     uv run python -m bot.cli check {{username}}
 
-# Syntax check all Python files
+# Lint with ruff
 lint:
-    @for f in bot/*.py checker.py proxy_wrapper.py; do \
-        python3 -m py_compile "$f" && echo "✓ $f" || echo "✗ $f"; \
-    done
+    uv run ruff check .
 
-# Clean data directory (keeps config)
+# Format with ruff
+fmt:
+    uv run ruff format .
+
+# Clean data, caches, and build artifacts (keeps config)
 clean:
+    #!/usr/bin/env bash
     rm -rf data/logs/* data/screenshots/* data/raw_responses/* data/monitor.db
-    echo "[+] Data cleaned"
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    rm -rf .ruff_cache .pytest_cache
+    echo "[+] Cleaned"
 
 # Remove venv and reinstall
 reinstall:
-    rm -rf .venv
+    rm -rf .venv .ruff_cache
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
     just setup
