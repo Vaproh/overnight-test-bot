@@ -1,7 +1,0 @@
-pyyaml
-python-telegram-bot
-curl_cffi
-playwright
-requests
-fastapi
-uvicorn

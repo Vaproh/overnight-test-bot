@@ -1,0 +1,20 @@
+[project]
+name = "instagram-ban-account"
+version = "2.0.0"
+description = "Telegram bot that monitors Instagram accounts for bans and restorations"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+    "python-telegram-bot",
+    "curl-cffi",
+    "playwright",
+    "requests",
+    "fastapi",
+    "uvicorn",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

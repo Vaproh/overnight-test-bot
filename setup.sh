@@ -2,36 +2,28 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
 NC='\033[0m'
 
 log()  { echo -e "${GREEN}[+]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 
-# ── Python venv ──
-if [ ! -d "$VENV_DIR" ]; then
-    log "Creating Python virtual environment..."
-    python3 -m venv "$VENV_DIR"
-else
-    log "Virtual environment exists"
+# ── Check uv ──
+if ! command -v uv &>/dev/null; then
+    log "uv not found. Installing..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
 fi
 
-source "$VENV_DIR/bin/activate"
-
-# ── Pip dependencies ──
-log "Installing dependencies..."
-pip install --quiet --upgrade pip
-pip install --quiet -r "$SCRIPT_DIR/requirements.txt"
-log "Pip packages installed"
+# ── Install dependencies ──
+log "Installing dependencies with uv..."
+uv sync
 
 # ── Playwright browsers ──
 log "Installing Playwright Chromium..."
-playwright install chromium 2>/dev/null || playwright install
-log "Playwright ready"
+uv run playwright install chromium 2>/dev/null || uv run playwright install
 
 # ── Data directories ──
 mkdir -p "$SCRIPT_DIR/data"

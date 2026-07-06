@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
 SESSION="ig-monitor"
 LOG_DIR="$SCRIPT_DIR/data/logs"
 LOG_FILE="$LOG_DIR/bot.log"
@@ -16,13 +15,13 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[x]${NC} $1"; }
 
 # ── Pre-flight ──
-if [ ! -d "$VENV_DIR" ]; then
-    err "Virtual environment not found. Run ./setup.sh first."
+if [ ! -f "$SCRIPT_DIR/config.yaml" ]; then
+    err "config.yaml not found."
     exit 1
 fi
 
-if [ ! -f "$SCRIPT_DIR/config.yaml" ]; then
-    err "config.yaml not found."
+if ! command -v uv &>/dev/null; then
+    err "uv not found. Run: just setup"
     exit 1
 fi
 
@@ -51,20 +50,20 @@ tmux new-session -d -s "$SESSION" "
 
     # 1. Local proxy wrapper (adds auth for upstream DataImpulse)
     echo \"[\$(date '+%H:%M:%S')] Starting proxy wrapper on :8888...\"
-    $VENV_DIR/bin/python proxy_wrapper.py &
+    uv run python proxy_wrapper.py &
     PROXY_PID=\$!
     sleep 1
 
     # 2. Checker service (Playwright-based profile checker)
     echo \"[\$(date '+%H:%M:%S')] Starting checker service on :8081...\"
-    $VENV_DIR/bin/python -m uvicorn checker:app --host 0.0.0.0 --port 8081 &
+    uv run uvicorn checker:app --host 0.0.0.0 --port 8081 &
     CHECKER_PID=\$!
     sleep 2
 
     # 3. Monitor bot (main loop)
     while true; do
         echo \"[\$(date '+%H:%M:%S')] Bot starting...\"
-        $VENV_DIR/bin/python -m bot 2>&1 | tee -a $LOG_FILE
+        uv run python -m bot 2>&1 | tee -a $LOG_FILE
         EXIT_CODE=\$?
         echo \"[\$(date '+%H:%M:%S')] Bot exited with code \$EXIT_CODE. Restarting in 5s...\"
         sleep 5
