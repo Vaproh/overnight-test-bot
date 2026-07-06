@@ -34,7 +34,10 @@ def load_cookies(cookies_path: str) -> Optional[List[dict]]:
 
 def save_cookies(cookies_path: str, cookies: List[dict]):
     try:
-        os.makedirs(os.path.dirname(cookies_path) if os.path.dirname(cookies_path) else ".", exist_ok=True)
+        os.makedirs(
+            os.path.dirname(cookies_path) if os.path.dirname(cookies_path) else ".",
+            exist_ok=True,
+        )
         with open(cookies_path, "w") as f:
             json.dump(cookies, f, indent=2)
         logger.info(f"Saved {len(cookies)} cookies to {cookies_path}")
@@ -77,7 +80,10 @@ def classify_response(data: Dict[str, Any], status_code: Optional[int]) -> str:
     if user_data is None:
         return "MISSING"
     if isinstance(user_data, dict):
-        if user_data.get("is_private") is not None or user_data.get("username") is not None:
+        if (
+            user_data.get("is_private") is not None
+            or user_data.get("username") is not None
+        ):
             return "ACTIVE"
         return "MISSING"
     return "MISSING"
@@ -127,14 +133,16 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
         response_hash = get_response_hash(raw_response)
         classification = classify_response(raw_response, status_code)
 
-        result.update({
-            "status_code": status_code,
-            "latency_ms": latency_ms,
-            "response_size": len(body),
-            "response_hash": response_hash,
-            "raw_response": raw_response,
-            "classification": classification,
-        })
+        result.update(
+            {
+                "status_code": status_code,
+                "latency_ms": latency_ms,
+                "response_size": len(body),
+                "response_hash": response_hash,
+                "raw_response": raw_response,
+                "classification": classification,
+            }
+        )
 
         if config.raw_responses_dir:
             result["raw_response_path"] = _save_raw_response(
@@ -143,16 +151,20 @@ def check_with_curl_cffi(username: str, config: Config) -> Dict[str, Any]:
 
     except Exception as e:
         latency_ms = (time.time() - start) * 1000
-        result.update({
-            "latency_ms": latency_ms,
-            "error_message": str(e)[:500],
-        })
+        result.update(
+            {
+                "latency_ms": latency_ms,
+                "error_message": str(e)[:500],
+            }
+        )
         logger.error(f"curl_cffi error for {username}: {e}")
 
     return result
 
 
-def generate_profile_card(username: str, config: Config, status: str = "unknown") -> dict:
+def generate_profile_card(
+    username: str, config: Config, status: str = "unknown"
+) -> dict:
     result = {
         "screenshot_path": None,
         "profile_data": {},
@@ -187,7 +199,9 @@ def generate_profile_card(username: str, config: Config, status: str = "unknown"
                 logger.info(f"Profile card generated for {username}")
             else:
                 result["error"] = "not_image"
-                logger.warning(f"Profile card service returned non-image for {username}")
+                logger.warning(
+                    f"Profile card service returned non-image for {username}"
+                )
         elif resp.status_code == 404:
             result["error"] = "profile_unavailable"
             logger.info(f"Profile card service: profile unavailable for {username}")
@@ -202,7 +216,9 @@ def generate_profile_card(username: str, config: Config, status: str = "unknown"
             logger.error(f"Profile card service: internal error")
         else:
             result["error"] = f"http_{resp.status_code}"
-            logger.warning(f"Profile card service returned {resp.status_code} for {username}")
+            logger.warning(
+                f"Profile card service returned {resp.status_code} for {username}"
+            )
 
     except _requests.exceptions.ConnectionError:
         result["error"] = "connection_refused"
@@ -259,49 +275,63 @@ def check_with_service(username: str, config: Config) -> Dict[str, Any]:
             }
             classification = state_map.get(state, "ERROR")
 
-            result.update({
-                "status_code": 200,
-                "latency_ms": latency_ms,
-                "response_size": len(resp.content),
-                "response_hash": get_response_hash(data),
-                "raw_response": data,
-                "classification": classification,
-            })
+            result.update(
+                {
+                    "status_code": 200,
+                    "latency_ms": latency_ms,
+                    "response_size": len(resp.content),
+                    "response_hash": get_response_hash(data),
+                    "raw_response": data,
+                    "classification": classification,
+                }
+            )
 
             if config.raw_responses_dir:
                 result["raw_response_path"] = _save_raw_response(
                     config.raw_responses_dir, username, data, "checker_service"
                 )
 
-            logger.info(f"Checker service: {username} -> state={state}, classification={classification}")
+            logger.info(
+                f"Checker service: {username} -> state={state}, classification={classification}"
+            )
         else:
-            result.update({
-                "status_code": resp.status_code,
-                "latency_ms": latency_ms,
-                "error_message": f"HTTP {resp.status_code}: {resp.text[:500]}",
-            })
-            logger.warning(f"Checker service returned {resp.status_code} for {username}")
+            result.update(
+                {
+                    "status_code": resp.status_code,
+                    "latency_ms": latency_ms,
+                    "error_message": f"HTTP {resp.status_code}: {resp.text[:500]}",
+                }
+            )
+            logger.warning(
+                f"Checker service returned {resp.status_code} for {username}"
+            )
 
     except _requests.exceptions.ConnectionError:
         latency_ms = (time.time() - start) * 1000
-        result.update({
-            "latency_ms": latency_ms,
-            "error_message": "connection_refused",
-        })
+        result.update(
+            {
+                "latency_ms": latency_ms,
+                "error_message": "connection_refused",
+            }
+        )
         logger.error(f"Checker service unreachable at {service_url}")
     except _requests.exceptions.Timeout:
         latency_ms = (time.time() - start) * 1000
-        result.update({
-            "latency_ms": latency_ms,
-            "error_message": "timeout",
-        })
+        result.update(
+            {
+                "latency_ms": latency_ms,
+                "error_message": "timeout",
+            }
+        )
         logger.error(f"Checker service timed out for {username}")
     except Exception as e:
         latency_ms = (time.time() - start) * 1000
-        result.update({
-            "latency_ms": latency_ms,
-            "error_message": str(e)[:500],
-        })
+        result.update(
+            {
+                "latency_ms": latency_ms,
+                "error_message": str(e)[:500],
+            }
+        )
         logger.error(f"Checker service error for {username}: {e}")
 
     return result
@@ -320,7 +350,9 @@ def check_account(username: str, config: Config) -> Dict[str, Any]:
 
         if classification == "RATE_LIMITED":
             backoff = backoff_list[min(attempt, len(backoff_list) - 1)]
-            logger.warning(f"Rate limited for {username}, attempt {attempt + 1}/{max_retries}, retry in {backoff}s")
+            logger.warning(
+                f"Rate limited for {username}, attempt {attempt + 1}/{max_retries}, retry in {backoff}s"
+            )
             time.sleep(backoff)
             last_result = result
             continue
@@ -329,7 +361,9 @@ def check_account(username: str, config: Config) -> Dict[str, Any]:
             err = result["error_message"].lower()
             if any(kw in err for kw in ["timeout", "connection", "proxy", "network"]):
                 backoff = backoff_list[min(attempt, len(backoff_list) - 1)]
-                logger.warning(f"Retryable error for {username}: {result['error_message']}, retry in {backoff}s")
+                logger.warning(
+                    f"Retryable error for {username}: {result['error_message']}, retry in {backoff}s"
+                )
                 time.sleep(backoff)
                 last_result = result
                 continue
@@ -343,7 +377,9 @@ def check_account(username: str, config: Config) -> Dict[str, Any]:
     }
 
 
-def verify_with_service(username: str, curl_result: Dict[str, Any], config: Config) -> Dict[str, Any]:
+def verify_with_service(
+    username: str, curl_result: Dict[str, Any], config: Config
+) -> Dict[str, Any]:
     """Verify MISSING result via the checker service. Maps service states to monitor states."""
     if not config.playwright.enabled:
         return curl_result
@@ -363,9 +399,13 @@ def verify_with_service(username: str, curl_result: Dict[str, Any], config: Conf
         logger.info(f"Checker service confirms {username} is MISSING")
     elif svc_class == "ACTIVE":
         curl_result["classification"] = "SUSPECT"
-        logger.warning(f"Disagreement: curl=MISSING, service=ACTIVE for {username} -> SUSPECT")
+        logger.warning(
+            f"Disagreement: curl=MISSING, service=ACTIVE for {username} -> SUSPECT"
+        )
     else:
-        logger.warning(f"Checker service returned {svc_class} for {username}, keeping curl result")
+        logger.warning(
+            f"Checker service returned {svc_class} for {username}, keeping curl result"
+        )
         raw = svc_result.get("raw_response", {})
         if isinstance(raw, dict):
             preview = raw.get("page_text", "")[:500]
@@ -374,7 +414,9 @@ def verify_with_service(username: str, curl_result: Dict[str, Any], config: Conf
     return curl_result
 
 
-def _save_raw_response(raw_dir: str, username: str, raw_response: Any, transport: str) -> str:
+def _save_raw_response(
+    raw_dir: str, username: str, raw_response: Any, transport: str
+) -> str:
     try:
         os.makedirs(raw_dir, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

@@ -107,7 +107,9 @@ class Config:
                 cookies_path=ig_data.get("cookies_path", "./data/cookies.json"),
             ),
             screenshot_service_url=data.get("screenshot_service_url", ""),
-            checker_service_url=data.get("checker_service_url", "http://127.0.0.1:8081"),
+            checker_service_url=data.get(
+                "checker_service_url", "http://127.0.0.1:8081"
+            ),
             database_path=data.get("database_path", "./data/monitor.db"),
             raw_responses_dir=data.get("raw_responses_dir", "./data/raw_responses"),
             logs_dir=data.get("logs_dir", "./data/logs"),

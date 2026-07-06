@@ -28,10 +28,14 @@ def main():
 
     missing_admins = db.get_admins_without_chat_id()
     if missing_admins:
-        logger.warning(f"Admins without chat_id (interact with bot to register): {', '.join('@' + a for a in missing_admins)}")
+        logger.warning(
+            f"Admins without chat_id (interact with bot to register): {', '.join('@' + a for a in missing_admins)}"
+        )
     missing_users = db.get_users_without_chat_id()
     if missing_users:
-        logger.warning(f"Users without chat_id (interact with bot to register): {', '.join('@' + u for u in missing_users)}")
+        logger.warning(
+            f"Users without chat_id (interact with bot to register): {', '.join('@' + u for u in missing_users)}"
+        )
 
     db.cleanup_old_data(
         days=7,
@@ -74,6 +78,7 @@ def main():
 
     try:
         if telegram_bot and telegram_bot.app:
+
             async def on_post_init(application):
                 await telegram_bot.post_init(application)
                 telegram_bot.send_startup_notification()

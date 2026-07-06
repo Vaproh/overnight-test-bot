@@ -16,7 +16,13 @@ CLEANUP_INTERVAL = 86400
 
 
 class Monitor:
-    def __init__(self, config: Config, db: Database, notify_fn: Optional[Callable] = None, notify_photo_fn: Optional[Callable] = None):
+    def __init__(
+        self,
+        config: Config,
+        db: Database,
+        notify_fn: Optional[Callable] = None,
+        notify_photo_fn: Optional[Callable] = None,
+    ):
         self.config = config
         self.db = db
         self.notify_fn = notify_fn
@@ -34,7 +40,9 @@ class Monitor:
         self._run_startup_verification()
 
         accounts = self.db.get_all_accounts()
-        logger.info(f"Monitor started, checking {len(accounts)} accounts every {self.config.check_interval}s")
+        logger.info(
+            f"Monitor started, checking {len(accounts)} accounts every {self.config.check_interval}s"
+        )
 
         self._run_loop()
 
@@ -46,7 +54,9 @@ class Monitor:
         if not self.config.test_accounts:
             return
 
-        logger.info(f"Startup verification: testing {len(self.config.test_accounts)} accounts")
+        logger.info(
+            f"Startup verification: testing {len(self.config.test_accounts)} accounts"
+        )
         all_pass = True
 
         for username in self.config.test_accounts:
@@ -101,7 +111,9 @@ class Monitor:
                 raw_dir=self.config.raw_responses_dir,
                 screenshots_dir=self.config.screenshots_dir,
             )
-            logger.info(f"Cleanup: deleted {stats['checks']} checks, {stats['events']} events, {stats['files']} files")
+            logger.info(
+                f"Cleanup: deleted {stats['checks']} checks, {stats['events']} events, {stats['files']} files"
+            )
         except Exception as e:
             logger.error(f"Cleanup failed: {e}")
 
@@ -150,7 +162,9 @@ class Monitor:
 
         check_data = {
             "account_id": account_id,
-            "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "timestamp": result.get(
+                "timestamp", datetime.now(timezone.utc).isoformat()
+            ),
             "status": new_status,
             "status_code": result.get("status_code"),
             "latency_ms": result.get("latency_ms", 0),
@@ -167,9 +181,18 @@ class Monitor:
         if is_transition:
             logger.info(f"TRANSITION: {username} {old_status} -> {new_status}")
             if check_count >= 2:
-                self._handle_transition(account_id, username, old_status or "UNKNOWN", new_status, result, down_since)
+                self._handle_transition(
+                    account_id,
+                    username,
+                    old_status or "UNKNOWN",
+                    new_status,
+                    result,
+                    down_since,
+                )
             else:
-                logger.info(f"SKIPPING NOTIFICATION: {username} (check {check_count + 1}/2, first checks)")
+                logger.info(
+                    f"SKIPPING NOTIFICATION: {username} (check {check_count + 1}/2, first checks)"
+                )
 
         logger.info(
             f"  {username}: {new_status} "
@@ -186,7 +209,15 @@ class Monitor:
             "status_code": result.get("status_code"),
         }
 
-    def _handle_transition(self, account_id: int, username: str, old_status: str, new_status: str, result: dict, down_since: Optional[str] = None):
+    def _handle_transition(
+        self,
+        account_id: int,
+        username: str,
+        old_status: str,
+        new_status: str,
+        result: dict,
+        down_since: Optional[str] = None,
+    ):
         should_notify = False
         verification_result = None
 
@@ -210,7 +241,9 @@ class Monitor:
         if should_notify:
             logger.info(f"NOTIFY: {username} {old_status} -> {new_status}")
         else:
-            logger.info(f"LOGGED: {username} {old_status} -> {new_status} (no notification)")
+            logger.info(
+                f"LOGGED: {username} {old_status} -> {new_status} (no notification)"
+            )
 
         if should_notify and self.notify_fn:
             try:
@@ -219,7 +252,9 @@ class Monitor:
                 profile_data = {}
 
                 if new_status == "ACTIVE":
-                    screenshot_data = generate_profile_card(username, self.config, new_status.lower())
+                    screenshot_data = generate_profile_card(
+                        username, self.config, new_status.lower()
+                    )
                     screenshot_path = screenshot_data.get("screenshot_path")
                     profile_data = screenshot_data.get("profile_data", {})
                     screenshot_error = screenshot_data.get("error")
@@ -227,14 +262,19 @@ class Monitor:
                 duration = self._calc_duration(down_since)
 
                 caption = self._format_notification(
-                    username, old_status, new_status,
+                    username,
+                    old_status,
+                    new_status,
                     verification_result or "unverified",
-                    duration, profile_data,
+                    duration,
+                    profile_data,
                 )
 
                 chat_ids = self.db.get_notification_chat_ids_for_account(account_id)
                 if not chat_ids:
-                    logger.warning(f"No chat_id for @{username}'s owner, skipping notification")
+                    logger.warning(
+                        f"No chat_id for @{username}'s owner, skipping notification"
+                    )
                     return
 
                 if screenshot_path and self.notify_photo_to_chat_ids:
@@ -249,11 +289,13 @@ class Monitor:
                         "rate_limited": "Service rate limited",
                         "connection_refused": "Profile card service unreachable",
                     }
-                    reason = error_reasons.get(screenshot_error, "Screenshot unavailable")
+                    reason = error_reasons.get(
+                        screenshot_error, "Screenshot unavailable"
+                    )
                     fallback = (
                         f"{caption}\n\n"
                         f"⚠️ {reason}\n"
-                        f"🔗 <a href=\"https://www.instagram.com/{username}/\">Open profile</a>"
+                        f'🔗 <a href="https://www.instagram.com/{username}/">Open profile</a>'
                     )
                     if self.notify_to_chat_ids:
                         self.notify_to_chat_ids(chat_ids, fallback)
@@ -269,13 +311,20 @@ class Monitor:
                     "UPDATE events SET notification_sent = 1 WHERE id = ?", (event_id,)
                 )
                 self.db.conn.commit()
-                logger.info(f"Notification sent for {username} to {len(chat_ids)} recipients")
+                logger.info(
+                    f"Notification sent for {username} to {len(chat_ids)} recipients"
+                )
             except Exception as e:
                 logger.error(f"Failed to send notification for {username}: {e}")
 
     def _format_notification(
-        self, username: str, old_status: str, new_status: str,
-        verification: str, duration: str, profile_data: dict,
+        self,
+        username: str,
+        old_status: str,
+        new_status: str,
+        verification: str,
+        duration: str,
+        profile_data: dict,
     ) -> str:
         STATUS_EMOJI = {
             "ACTIVE": "🟢",
@@ -303,7 +352,7 @@ class Monitor:
             "",
             alert,
             "",
-            f"{emoji} <a href=\"https://www.instagram.com/{username}/\">@{username}</a>",
+            f'{emoji} <a href="https://www.instagram.com/{username}/">@{username}</a>',
             f"    {old_status} → {new_status}",
         ]
 

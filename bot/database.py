@@ -9,7 +9,9 @@ from typing import Any, Dict, List, Optional
 class Database:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else ".", exist_ok=True)
+        os.makedirs(
+            os.path.dirname(db_path) if os.path.dirname(db_path) else ".", exist_ok=True
+        )
         self.conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
@@ -208,7 +210,8 @@ class Database:
 
     def update_allowed_user_chat_id(self, username: str, chat_id: int):
         self.conn.execute(
-            "UPDATE allowed_users SET chat_id = ? WHERE username = ?", (chat_id, username)
+            "UPDATE allowed_users SET chat_id = ? WHERE username = ?",
+            (chat_id, username),
         )
         self.conn.commit()
 
@@ -233,8 +236,11 @@ class Database:
         user_ids = [row["chat_id"] for row in cur.fetchall()]
         return list(set(admin_ids + user_ids))
 
-    def cleanup_old_data(self, days: int = 7, raw_dir: str = "", screenshots_dir: str = "") -> dict:
+    def cleanup_old_data(
+        self, days: int = 7, raw_dir: str = "", screenshots_dir: str = ""
+    ) -> dict:
         from datetime import timedelta
+
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         stats = {"checks": 0, "events": 0, "files": 0}
@@ -256,6 +262,7 @@ class Database:
     def _cleanup_dir(self, directory: str, days: int) -> int:
         from datetime import timedelta
         import time as _time
+
         deleted = 0
         cutoff = _time.time() - (days * 86400)
         for root, dirs, files in os.walk(directory, topdown=False):
@@ -282,10 +289,16 @@ class Database:
         row = cursor.fetchone()
         if row:
             if added_by:
-                cursor.execute("UPDATE accounts SET added_by = ? WHERE id = ? AND (added_by IS NULL OR added_by = '')", (added_by, row["id"]))
+                cursor.execute(
+                    "UPDATE accounts SET added_by = ? WHERE id = ? AND (added_by IS NULL OR added_by = '')",
+                    (added_by, row["id"]),
+                )
                 self.conn.commit()
             return int(row["id"])
-        cursor.execute("INSERT INTO accounts (username, added_by) VALUES (?, ?)", (username, added_by))
+        cursor.execute(
+            "INSERT INTO accounts (username, added_by) VALUES (?, ?)",
+            (username, added_by),
+        )
         self.conn.commit()
         return cursor.lastrowid or 0
 
@@ -322,33 +335,45 @@ class Database:
             elif old_status in INVISIBLE and new_status in VISIBLE:
                 down_since = None
             elif old_status in INVISIBLE and new_status in INVISIBLE:
-                cursor.execute("SELECT down_since FROM accounts WHERE id = ?", (account_id,))
+                cursor.execute(
+                    "SELECT down_since FROM accounts WHERE id = ?", (account_id,)
+                )
                 ds_row = cursor.fetchone()
                 down_since = ds_row["down_since"] if ds_row else None
 
             if down_since is not None:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE accounts
                     SET status = ?, previous_status = ?, last_check = ?, last_change = ?, down_since = ?, check_count = check_count + 1, updated_at = ?
                     WHERE id = ?
-                """, (new_status, old_status, now, now, down_since, now, account_id))
+                """,
+                    (new_status, old_status, now, now, down_since, now, account_id),
+                )
             else:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE accounts
                     SET status = ?, previous_status = ?, last_check = ?, last_change = ?, down_since = NULL, check_count = check_count + 1, updated_at = ?
                     WHERE id = ?
-                """, (new_status, old_status, now, now, now, account_id))
+                """,
+                    (new_status, old_status, now, now, now, account_id),
+                )
         else:
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE accounts
                 SET last_check = ?, check_count = check_count + 1, updated_at = ?
                 WHERE id = ?
-            """, (now, now, account_id))
+            """,
+                (now, now, account_id),
+            )
         self.conn.commit()
 
     def save_check(self, check_data: Dict[str, Any]) -> int:
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO checks (
                 account_id, timestamp, status, status_code, latency_ms,
                 response_size, response_hash, raw_response_path,
@@ -358,16 +383,21 @@ class Database:
                 :response_size, :response_hash, :raw_response_path,
                 :verification_status, :error_message, :retry_count
             )
-        """, check_data)
+        """,
+            check_data,
+        )
         self.conn.commit()
         return cursor.lastrowid or 0
 
     def save_event(self, event_data: Dict[str, Any]) -> int:
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO events (account_id, old_status, new_status, timestamp, verification_result, notification_sent)
             VALUES (:account_id, :old_status, :new_status, :timestamp, :verification_result, :notification_sent)
-        """, event_data)
+        """,
+            event_data,
+        )
         self.conn.commit()
         return cursor.lastrowid or 0
 
@@ -411,47 +441,60 @@ class Database:
                 "SELECT chat_id FROM admins WHERE username = ? AND chat_id IS NOT NULL",
                 (added_by,),
             )
-            owner_ids.update(row["chat_id"] for row in cursor.fetchall() if row["chat_id"])
+            owner_ids.update(
+                row["chat_id"] for row in cursor.fetchall() if row["chat_id"]
+            )
             cursor.execute(
                 "SELECT chat_id FROM allowed_users WHERE username = ? AND chat_id IS NOT NULL",
                 (added_by,),
             )
-            owner_ids.update(row["chat_id"] for row in cursor.fetchall() if row["chat_id"])
+            owner_ids.update(
+                row["chat_id"] for row in cursor.fetchall() if row["chat_id"]
+            )
 
         return list(owner_ids)
 
     def get_recent_events(self, limit: int = 10) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT e.*, a.username
             FROM events e
             JOIN accounts a ON e.account_id = a.id
             ORDER BY e.timestamp DESC
             LIMIT ?
-        """, (limit,))
+        """,
+            (limit,),
+        )
         return [dict(row) for row in cursor.fetchall()]
 
     def get_recent_errors(self, limit: int = 10) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT c.*, a.username
             FROM checks c
             JOIN accounts a ON c.account_id = a.id
             WHERE c.error_message IS NOT NULL AND c.error_message != ''
             ORDER BY c.timestamp DESC
             LIMIT ?
-        """, (limit,))
+        """,
+            (limit,),
+        )
         return [dict(row) for row in cursor.fetchall()]
 
     def get_recent_checks(self, limit: int = 20) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT c.*, a.username
             FROM checks c
             JOIN accounts a ON c.account_id = a.id
             ORDER BY c.timestamp DESC
             LIMIT ?
-        """, (limit,))
+        """,
+            (limit,),
+        )
         return [dict(row) for row in cursor.fetchall()]
 
     def remove_account(self, username: str) -> bool:
@@ -475,10 +518,13 @@ class Database:
 
     def set_setting(self, key: str, value: str):
         now = datetime.now(timezone.utc).isoformat()
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO settings (key, value, updated_at)
             VALUES (?, ?, ?)
-        """, (key, value, now))
+        """,
+            (key, value, now),
+        )
         self.conn.commit()
 
     def save_report(self, username: str, message: str) -> int:

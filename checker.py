@@ -45,7 +45,9 @@ _PROXY_CFG = _load_proxy_config()
 if _PROXY_CFG.get("server"):
     PROXY = {"server": "http://127.0.0.1:8888"}
     USE_PROXY = True
-    logger.info(f"Proxy enabled: routing through local wrapper -> {_PROXY_CFG['server']}")
+    logger.info(
+        f"Proxy enabled: routing through local wrapper -> {_PROXY_CFG['server']}"
+    )
 else:
     PROXY = {}
     USE_PROXY = False
@@ -162,7 +164,10 @@ async def check_profile(username: str) -> dict:
 
             text = result["page_text"].lower()
 
-            if "profile isn't available" in text or "sorry, this page isn't available" in text:
+            if (
+                "profile isn't available" in text
+                or "sorry, this page isn't available" in text
+            ):
                 result["state"] = "unavailable"
             elif "this profile is private" in text:
                 result["state"] = "private"
@@ -203,4 +208,5 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8081)

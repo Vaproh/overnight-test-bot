@@ -6,7 +6,7 @@ upstream proxy with Basic auth credentials injected.
 
 Usage:
     python3 proxy_wrapper.py
-    
+
 Listens on localhost:8888, forwards to upstream proxy from config.yaml
 """
 
@@ -52,9 +52,10 @@ def _load_proxy_config() -> tuple:
 
 UPSTREAM_HOST, UPSTREAM_PORT, UPSTREAM_USER, UPSTREAM_PASS = _load_proxy_config()
 
-AUTH_HEADER = "Proxy-Authorization: Basic " + base64.b64encode(
-    f"{UPSTREAM_USER}:{UPSTREAM_PASS}".encode()
-).decode()
+AUTH_HEADER = (
+    "Proxy-Authorization: Basic "
+    + base64.b64encode(f"{UPSTREAM_USER}:{UPSTREAM_PASS}".encode()).decode()
+)
 
 
 async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -71,7 +72,9 @@ async def relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         writer.close()
 
 
-async def handle_client(client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter):
+async def handle_client(
+    client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter
+):
     addr = client_writer.get_extra_info("peername")
     try:
         # Read the CONNECT request from Chromium
@@ -91,7 +94,9 @@ async def handle_client(client_reader: asyncio.StreamReader, client_writer: asyn
                 break
 
         # Connect to upstream proxy
-        upstream_reader, upstream_writer = await asyncio.open_connection(UPSTREAM_HOST, UPSTREAM_PORT)
+        upstream_reader, upstream_writer = await asyncio.open_connection(
+            UPSTREAM_HOST, UPSTREAM_PORT
+        )
 
         # Send CONNECT to upstream WITH auth
         auth_payload = (
@@ -124,7 +129,9 @@ async def handle_client(client_reader: asyncio.StreamReader, client_writer: asyn
                 relay(upstream_reader, client_writer),
             )
         else:
-            client_writer.write(f"HTTP/1.1 {status_code} Connection Refused\r\n\r\n".encode())
+            client_writer.write(
+                f"HTTP/1.1 {status_code} Connection Refused\r\n\r\n".encode()
+            )
             await client_writer.drain()
             client_writer.close()
             upstream_writer.close()
